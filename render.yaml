@@ -1,0 +1,61 @@
+# ---------------------------------------------------------------------------
+# Render Blueprint — Enervera Medical GraphRAG service.
+#
+# Deploy:
+#   1. Push this repo to GitHub.
+#   2. In Render → New → Blueprint → connect the repo. Render reads this file.
+#   3. Set the secret env vars in the dashboard (anything with `sync: false`).
+#   4. Render builds the Dockerfile and serves at https://<service>.onrender.com.
+#
+# Notes:
+#   - `sync: false` env vars MUST be set in the Render dashboard. They are
+#     never committed to source.
+#   - `runtime: docker` makes Render use the repo's Dockerfile verbatim. No
+#     buildpacks involved.
+#   - `healthCheckPath: /health` returns in <200ms with no upstream calls.
+# ---------------------------------------------------------------------------
+
+services:
+  - type: web
+    name: enervera-api
+    runtime: docker
+    plan: starter            # bump to standard for production traffic
+    region: oregon            # closest to AWS us-east-1 Pinecone index, change if your Pinecone region differs
+    autoDeploy: true
+    healthCheckPath: /health
+    envVars:
+      # --- secrets (set in dashboard) ---
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: NEO4J_URI
+        sync: false           # Aura: neo4j+s://<dbid>.databases.neo4j.io
+      - key: NEO4J_USERNAME
+        sync: false           # Aura default: neo4j
+      - key: NEO4J_PASSWORD
+        sync: false           # Aura password from instance creation / reset
+      - key: REDIS_URL
+        sync: false           # use Render Redis URL or external Upstash/etc
+      - key: API_KEY
+        sync: false           # optional; when set, /chat + /episodic require X-API-Key
+
+      # --- frontend integration ---
+      - key: CORS_ORIGINS
+        sync: false           # set to your real frontend URL(s) in the dashboard
+                              # e.g. https://app.enervera.com,https://staging.enervera.com
+                              # leave unset/empty for "*" while testing
+
+      # --- non-secret config (committed defaults) ---
+      - key: PINECONE_INDEX_NAME
+        value: enervera
+      - key: PINECONE_EPISODIC_INDEX_NAME
+        value: episodicmemory
+      - key: EPISODIC_MEMORY_ENABLED
+        value: "true"
+      - key: EPISODIC_EVAL_LOGGING_ENABLED
+        value: "false"        # turn on once a labels file is being curated
+      - key: LOG_LEVEL
+        value: INFO
+      - key: SESSION_TTL_SEC
+        value: "7200"

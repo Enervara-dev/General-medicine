@@ -1,0 +1,193 @@
+[
+  {
+    "chunk_id": "robbins_basic_pathology_10th_edition-blk-1-micro-1",
+    "source": {
+      "book": "Pathology",
+      "chapter": "general",
+      "topic": "robbins_basic_pathology_10th_edition",
+      "page": "unknown"
+    },
+    "text": "Robbins\nBASIC PATHOLOGY",
+    "entities": [
+      {
+        "name": "Pathology",
+        "type": "test",
+        "normalized_name": "pathology",
+        "properties": {}
+      }
+    ],
+    "relations": [],
+    "summary": "The text consists solely of a reference to the medical textbook 'Robbins Basic Pathology' and a system error message regarding a previous schema validation failure.",
+    "clinical_significance": "The provided text contains no patient-specific clinical data, symptoms, diagnoses, or treatment information, and therefore holds no direct clinical significance for medical decision-making or patient care.",
+    "metadata": {
+      "tokens": 3,
+      "llm_model": "qwen/qwen3.6-plus:free",
+      "version": "v1",
+      "created_at": "2026-04-05"
+    }
+  },
+  {
+    "chunk_id": "robbins_basic_pathology_10th_edition-blk-2-micro-1",
+    "source": {
+      "book": "Pathology",
+      "chapter": "general",
+      "topic": "robbins_basic_pathology_10th_edition",
+      "page": "unknown"
+    },
+    "text": "Robbins\nBASIC \nPATHOLOGY\nT E N T H E D I T I O N\nVinay Kumar, MBBS, MD, FRCPath\nAlice Hogge and Arthur A. Baer Distinguished Service Professor of Pathology\nBiological Sciences Division and The Pritzker Medical School\nUniversity of Chicago\nChicago, Illinois\nAbul K. Abbas, MBBS\nDistinguished Professor and Chair\nDepartment of Pathology \nUniversity of California, San Francisco\nSan Francisco, California\nJon C. Aster, MD, PhD\nProfessor of Pathology\nBrigham and Women\u2019s Hospital and Harvard Medical School\nBoston, Massachusetts\nA RT I S T James A. Perkins, MS, MFA",
+    "entities": [
+      {
+        "name": "Pathology",
+        "type": "procedure",
+        "normalized_name": "pathology",
+        "properties": {}
+      }
+    ],
+    "relations": [],
+    "summary": "The provided text is the title and author credit page for the tenth edition of the medical textbook 'Robbins Basic Pathology,' listing the contributing authors, their academic degrees, professional titles, and institutional affiliations.",
+    "clinical_significance": "The text establishes the academic and clinical credentials of the authors in the field of pathology, indicating the textbook's authoritative role in medical education and diagnostic training.",
+    "metadata": {
+      "tokens": 118,
+      "llm_model": "qwen/qwen3.6-plus:free",
+      "version": "v1",
+      "created_at": "2026-04-05"
+    }
+  },
+  {
+    "chunk_id": "robbins_basic_pathology_10th_edition-blk-3-focus-0",
+    "source": {
+      "book": "Pathology",
+      "chapter": "general",
+      "topic": "robbins_basic_pathology_10th_edition",
+      "page": "unknown"
+    },
+    "text": "1600 John F. Kennedy Blvd.\nPhiladelphia, Pennsylvania 19103-2899\nROBBINS BASIC PATHOLOGY, TENTH EDITION\b\nISBN: 978-0-323-35317-5\nInternational Edition: 978-0-323-48054-3\nCopyright \u00a9 2018 by Elsevier Inc. All rights reserved.\nPrevious editions copyrighted 2013, 2007, 2003, 1997, 1992, 1987, 1981, 1976, and 1971\nNo part of this publication may be reproduced or transmitted in any form or by any means, \nelectronic or mechanical, including photocopying, recording, or any information storage and \nretrieval system, without permission in writing from the Publisher. Details on how to seek \npermission, further information about the Publisher\u2019s permissions policies, and our arrangements \nwith organizations such as the Copyright Clearance Center and the Copyright Licensing Agency \ncan be found at our website: www.elsevier.com/permissions.\nThis book and the individual contributions contained in it are protected under copyright by the \nPublisher (other than as may be noted herein).\nNotices\nKnowledge and best practice in this field are constantly changing. As new research and \nexperience broaden our understanding, changes in research methods, professional practices, or \nmedical treatment may become necessary.\nPractitioners and researchers must always rely on their own experience and knowledge in \nevaluating and using any information, methods, compounds, or experiments described herein. \nIn using such information or methods they should be mindful of their own safety and the safety \nof others, including parties for whom they have a professional responsibility.\nWith respect to any drug or pharmaceutical products identified, readers are advised to check \nthe most current information provided (i) on procedures featured or (ii) by the manufacturer of \neach product to be administered, to verify the recommended dose or formula, the method and \nduration of administration, and contraindications. It is the responsibility of practitioners, relying \non their own experience and knowledge of their patients, to make diagnoses, to determine \ndosages and the best treatment for each individual patient, and to take all appropriate safety \nprecautions.\nTo the fullest extent of the law, neither the Publisher nor the authors, contributors, or editors \nassume any liability for any injury and/or damage to persons or property as a matter of \nproducts liability, negligence or otherwise, or from any use or operation of any methods, \nproducts, instructions, or ideas contained in the material herein.\nLibrary of Congress Cataloging-in-Publication Data\nNames: Kumar, Vinay, 1944- editor. | Abbas, Abul K., editor. | Aster, Jon C.,\n editor. | Perkins, James A., illustrator.\nTitle: Robbins basic pathology / [edited by] Vinay Kumar, Abul K. Abbas, \nJon C. Aster ; artist, James A. Perkins.\nOther titles: Basic pathology\nDescription: Tenth edition. | Philadelphia, Pennsylvania : Elsevier, [2018]\n | Includes bibliographical references and index.\nIdentifiers: LCCN 2017002902 | ISBN 9780323353175 (hardcover : alk. paper)\nSubjects: | MESH: Pathologic Processes\nClassification: LCC RB111 | NLM QZ 140 | DDC 616.07\u2013dc23 LC record available at \nhttps://lccn.loc.gov/2017002902\nExecutive Content Strategist: James Merritt\nDirector, Content Development: Rebecca Gruliow\nPublishing Services Manager: Julie Eddy\nBook Production Specialist: Clay S. Broeker\nDesign Direction: Brian Salisbury\nPrinted in Canada\nLast digit is the print number: 9 8 7 6 5 4 3 2 1",
+    "entities": [
+      {
+        "name": "Pathologic Processes",
+        "type": "disease",
+        "normalized_name": "pathologic processes",
+        "properties": {}
+      }
+    ],
+    "relations": [],
+    "summary": "The provided text is the copyright and disclaimer section for the tenth edition of Robbins Basic Pathology, emphasizing that medical knowledge evolves and practitioners must independently verify drug information, dosages, and contraindications while relying on their own clinical experience to diagnose and treat patients safely.",
+    "clinical_significance": "Underscores the critical importance of practitioner vigilance, continuous education, and independent verification of pharmaceutical data to ensure patient safety and appropriate clinical decision-making in a rapidly changing medical landscape.",
+    "metadata": {
+      "tokens": 646,
+      "llm_model": "qwen/qwen3.6-plus:free",
+      "version": "v1",
+      "created_at": "2026-04-05"
+    }
+  },
+  {
+    "chunk_id": "robbins_basic_pathology_10th_edition-blk-3-focus-1",
+    "source": {
+      "book": "Pathology",
+      "chapter": "general",
+      "topic": "robbins_basic_pathology_10th_edition",
+      "page": "unknown"
+    },
+    "text": "1600 John F. Kennedy Blvd.\nPhiladelphia, Pennsylvania 19103-2899\nROBBINS BASIC PATHOLOGY, TENTH EDITION\b\nISBN: 978-0-323-35317-5\nInternational Edition: 978-0-323-48054-3\nCopyright \u00a9 2018 by Elsevier Inc. All rights reserved.\nPrevious editions copyrighted 2013, 2007, 2003, 1997, 1992, 1987, 1981, 1976, and 1971\nNo part of this publication may be reproduced or transmitted in any form or by any means, \nelectronic or mechanical, including photocopying, recording, or any information storage and \nretrieval system, without permission in writing from the Publisher. Details on how to seek \npermission, further information about the Publisher\u2019s permissions policies, and our arrangements \nwith organizations such as the Copyright Clearance Center and the Copyright Licensing Agency \ncan be found at our website: www.elsevier.com/permissions.\nThis book and the individual contributions contained in it are protected under copyright by the \nPublisher (other than as may be noted herein).\nNotices\nKnowledge and best practice in this field are constantly changing. As new research and \nexperience broaden our understanding, changes in research methods, professional practices, or \nmedical treatment may become necessary.\nPractitioners and researchers must always rely on their own experience and knowledge in \nevaluating and using any information, methods, compounds, or experiments described herein. \nIn using such information or methods they should be mindful of their own safety and the safety \nof others, including parties for whom they have a professional responsibility.\nWith respect to any drug or pharmaceutical products identified, readers are advised to check \nthe most current information provided (i) on procedures featured or (ii) by the manufacturer of \neach product to be administered, to verify the recommended dose or formula, the method and \nduration of administration, and contraindications. It is the responsibility of practitioners, relying \non their own experience and knowledge of their patients, to make diagnoses, to determine \ndosages and the best treatment for each individual patient, and to take all appropriate safety \nprecautions.\nTo the fullest extent of the law, neither the Publisher nor the authors, contributors, or editors \nassume any liability for any injury and/or damage to persons or property as a matter of \nproducts liability, negligence or otherwise, or from any use or operation of any methods, \nproducts, instructions, or ideas contained in the material herein.\nLibrary of Congress Cataloging-in-Publication Data\nNames: Kumar, Vinay, 1944- editor. | Abbas, Abul K., editor. | Aster, Jon C.,\n editor. | Perkins, James A., illustrator.\nTitle: Robbins basic pathology / [edited by] Vinay Kumar, Abul K. Abbas, \nJon C. Aster ; artist, James A. Perkins.\nOther titles: Basic pathology\nDescription: Tenth edition. | Philadelphia, Pennsylvania : Elsevier, [2018]\n | Includes bibliographical references and index.\nIdentifiers: LCCN 2017002902 | ISBN 9780323353175 (hardcover : alk. paper)\nSubjects: | MESH: Pathologic Processes\nClassification: LCC RB111 | NLM QZ 140 | DDC 616.07\u2013dc23 LC record available at \nhttps://lccn.loc.gov/2017002902\nExecutive Content Strategist: James Merritt\nDirector, Content Development: Rebecca Gruliow\nPublishing Services Manager: Julie Eddy\nBook Production Specialist: Clay S. Broeker\nDesign Direction: Brian Salisbury\nPrinted in Canada\nLast digit is the print number: 9 8 7 6 5 4 3 2 1",
+    "entities": [
+      {
+        "name": "drug",
+        "type": "drug",
+        "normalized_name": "drug",
+        "properties": {}
+      }
+    ],
+    "relations": [],
+    "summary": "The provided text is the copyright and disclaimer section for the tenth edition of Robbins Basic Pathology, emphasizing that medical knowledge evolves and practitioners must independently verify drug information, dosages, and contraindications while relying on their own clinical experience to diagnose and treat patients safely.",
+    "clinical_significance": "Underscores the critical importance of practitioner vigilance, continuous education, and independent verification of pharmaceutical data to ensure patient safety and appropriate clinical decision-making in a rapidly changing medical landscape.",
+    "metadata": {
+      "tokens": 646,
+      "llm_model": "qwen/qwen3.6-plus:free",
+      "version": "v1",
+      "created_at": "2026-04-05"
+    }
+  },
+  {
+    "chunk_id": "robbins_basic_pathology_10th_edition-blk-3-focus-2",
+    "source": {
+      "book": "Pathology",
+      "chapter": "general",
+      "topic": "robbins_basic_pathology_10th_edition",
+      "page": "unknown"
+    },
+    "text": "1600 John F. Kennedy Blvd.\nPhiladelphia, Pennsylvania 19103-2899\nROBBINS BASIC PATHOLOGY, TENTH EDITION\b\nISBN: 978-0-323-35317-5\nInternational Edition: 978-0-323-48054-3\nCopyright \u00a9 2018 by Elsevier Inc. All rights reserved.\nPrevious editions copyrighted 2013, 2007, 2003, 1997, 1992, 1987, 1981, 1976, and 1971\nNo part of this publication may be reproduced or transmitted in any form or by any means, \nelectronic or mechanical, including photocopying, recording, or any information storage and \nretrieval system, without permission in writing from the Publisher. Details on how to seek \npermission, further information about the Publisher\u2019s permissions policies, and our arrangements \nwith organizations such as the Copyright Clearance Center and the Copyright Licensing Agency \ncan be found at our website: www.elsevier.com/permissions.\nThis book and the individual contributions contained in it are protected under copyright by the \nPublisher (other than as may be noted herein).\nNotices\nKnowledge and best practice in this field are constantly changing. As new research and \nexperience broaden our understanding, changes in research methods, professional practices, or \nmedical treatment may become necessary.\nPractitioners and researchers must always rely on their own experience and knowledge in \nevaluating and using any information, methods, compounds, or experiments described herein. \nIn using such information or methods they should be mindful of their own safety and the safety \nof others, including parties for whom they have a professional responsibility.\nWith respect to any drug or pharmaceutical products identified, readers are advised to check \nthe most current information provided (i) on procedures featured or (ii) by the manufacturer of \neach product to be administered, to verify the recommended dose or formula, the method and \nduration of administration, and contraindications. It is the responsibility of practitioners, relying \non their own experience and knowledge of their patients, to make diagnoses, to determine \ndosages and the best treatment for each individual patient, and to take all appropriate safety \nprecautions.\nTo the fullest extent of the law, neither the Publisher nor the authors, contributors, or editors \nassume any liability for any injury and/or damage to persons or property as a matter of \nproducts liability, negligence or otherwise, or from any use or operation of any methods, \nproducts, instructions, or ideas contained in the material herein.\nLibrary of Congress Cataloging-in-Publication Data\nNames: Kumar, Vinay, 1944- editor. | Abbas, Abul K., editor. | Aster, Jon C.,\n editor. | Perkins, James A., illustrator.\nTitle: Robbins basic pathology / [edited by] Vinay Kumar, Abul K. Abbas, \nJon C. Aster ; artist, James A. Perkins.\nOther titles: Basic pathology\nDescription: Tenth edition. | Philadelphia, Pennsylvania : Elsevier, [2018]\n | Includes bibliographical references and index.\nIdentifiers: LCCN 2017002902 | ISBN 9780323353175 (hardcover : alk. paper)\nSubjects: | MESH: Pathologic Processes\nClassification: LCC RB111 | NLM QZ 140 | DDC 616.07\u2013dc23 LC record available at \nhttps://lccn.loc.gov/2017002902\nExecutive Content Strategist: James Merritt\nDirector, Content Development: Rebecca Gruliow\nPublishing Services Manager: Julie Eddy\nBook Production Specialist: Clay S. Broeker\nDesign Direction: Brian Salisbury\nPrinted in Canada\nLast digit is the print number: 9 8 7 6 5 4 3 2 1",
+    "entities": [
+      {
+        "name": "diagnoses",
+        "type": "procedure",
+        "normalized_name": "diagnoses",
+        "properties": {}
+      }
+    ],
+    "relations": [],
+    "summary": "The provided text is the copyright and disclaimer section for the tenth edition of Robbins Basic Pathology, emphasizing that medical knowledge evolves and practitioners must independently verify drug information, dosages, and contraindications while relying on their own clinical experience to diagnose and treat patients safely.",
+    "clinical_significance": "Underscores the critical importance of practitioner vigilance, continuous education, and independent verification of pharmaceutical data to ensure patient safety and appropriate clinical decision-making in a rapidly changing medical landscape.",
+    "metadata": {
+      "tokens": 646,
+      "llm_model": "qwen/qwen3.6-plus:free",
+      "version": "v1",
+      "created_at": "2026-04-05"
+    }
+  },
+  {
+    "chunk_id": "robbins_basic_pathology_10th_edition-blk-3-focus-3",
+    "source": {
+      "book": "Pathology",
+      "chapter": "general",
+      "topic": "robbins_basic_pathology_10th_edition",
+      "page": "unknown"
+    },
+    "text": "1600 John F. Kennedy Blvd.\nPhiladelphia, Pennsylvania 19103-2899\nROBBINS BASIC PATHOLOGY, TENTH EDITION\b\nISBN: 978-0-323-35317-5\nInternational Edition: 978-0-323-48054-3\nCopyright \u00a9 2018 by Elsevier Inc. All rights reserved.\nPrevious editions copyrighted 2013, 2007, 2003, 1997, 1992, 1987, 1981, 1976, and 1971\nNo part of this publication may be reproduced or transmitted in any form or by any means, \nelectronic or mechanical, including photocopying, recording, or any information storage and \nretrieval system, without permission in writing from the Publisher. Details on how to seek \npermission, further information about the Publisher\u2019s permissions policies, and our arrangements \nwith organizations such as the Copyright Clearance Center and the Copyright Licensing Agency \ncan be found at our website: www.elsevier.com/permissions.\nThis book and the individual contributions contained in it are protected under copyright by the \nPublisher (other than as may be noted herein).\nNotices\nKnowledge and best practice in this field are constantly changing. As new research and \nexperience broaden our understanding, changes in research methods, professional practices, or \nmedical treatment may become necessary.\nPractitioners and researchers must always rely on their own experience and knowledge in \nevaluating and using any information, methods, compounds, or experiments described herein. \nIn using such information or methods they should be mindful of their own safety and the safety \nof others, including parties for whom they have a professional responsibility.\nWith respect to any drug or pharmaceutical products identified, readers are advised to check \nthe most current information provided (i) on procedures featured or (ii) by the manufacturer of \neach product to be administered, to verify the recommended dose or formula, the method and \nduration of administration, and contraindications. It is the responsibility of practitioners, relying \non their own experience and knowledge of their patients, to make diagnoses, to determine \ndosages and the best treatment for each individual patient, and to take all appropriate safety \nprecautions.\nTo the fullest extent of the law, neither the Publisher nor the authors, contributors, or editors \nassume any liability for any injury and/or damage to persons or property as a matter of \nproducts liability, negligence or otherwise, or from any use or operation of any methods, \nproducts, instructions, or ideas contained in the material herein.\nLibrary of Congress Cataloging-in-Publication Data\nNames: Kumar, Vinay, 1944- editor. | Abbas, Abul K., editor. | Aster, Jon C.,\n editor. | Perkins, James A., illustrator.\nTitle: Robbins basic pathology / [edited by] Vinay Kumar, Abul K. Abbas, \nJon C. Aster ; artist, James A. Perkins.\nOther titles: Basic pathology\nDescription: Tenth edition. | Philadelphia, Pennsylvania : Elsevier, [2018]\n | Includes bibliographical references and index.\nIdentifiers: LCCN 2017002902 | ISBN 9780323353175 (hardcover : alk. paper)\nSubjects: | MESH: Pathologic Processes\nClassification: LCC RB111 | NLM QZ 140 | DDC 616.07\u2013dc23 LC record available at \nhttps://lccn.loc.gov/2017002902\nExecutive Content Strategist: James Merritt\nDirector, Content Development: Rebecca Gruliow\nPublishing Services Manager: Julie Eddy\nBook Production Specialist: Clay S. Broeker\nDesign Direction: Brian Salisbury\nPrinted in Canada\nLast digit is the print number: 9 8 7 6 5 4 3 2 1",
+    "entities": [
+      {
+        "name": "treatment",
+        "type": "procedure",
+        "normalized_name": "treatment",
+        "properties": {}
+      }
+    ],
+    "relations": [],
+    "summary": "The provided text is the copyright and disclaimer section for the tenth edition of Robbins Basic Pathology, emphasizing that medical knowledge evolves and practitioners must independently verify drug information, dosages, and contraindications while relying on their own clinical experience to diagnose and treat patients safely.",
+    "clinical_significance": "Underscores the critical importance of practitioner vigilance, continuous education, and independent verification of pharmaceutical data to ensure patient safety and appropriate clinical decision-making in a rapidly changing medical landscape.",
+    "metadata": {
+      "tokens": 646,
+      "llm_model": "qwen/qwen3.6-plus:free",
+      "version": "v1",
+      "created_at": "2026-04-05"
+    }
+  },
+  {
+    "chunk_id": "robbins_basic_pathology_10th_edition-blk-4-micro-1",
+    "source": {
+      "book": "Pathology",
+      "chapter": "general",
+      "topic": "robbins_basic_pathology_10th_edition",
+      "page": "unknown"
+    },
+    "text": "DEDICATION\nDedicated to\nOur Grandchildren\nKiera, Nikhil, and Kavi\nAnd Our Children\nJonathan and Rehana Abbas\nMichael and Meghan Aster",
+    "entities": [
+      {
+        "name": "Dedication",
+        "type": "procedure",
+        "normalized_name": "dedication",
+        "properties": {
+          "context": "Non-clinical literary dedication"
+        }
+      }
+    ],
+    "relations": [],
+    "summary": "The provided text is a personal dedication listing the names of the author's grandchildren (Kiera, Nikhil, and Kavi) and children (Jonathan and Rehana Abbas, Michael and Meghan Aster).",
+    "clinical_significance": "The text contains no medical, clinical, or health-related information. It is purely a personal dedication and therefore holds no clinical significance.",
+    "metadata": {
+      "tokens": 26,
+      "llm_model": "qwen/qwen3.6-plus:free",
+      "version": "v1",
+      "created_at": "2026-04-05"
+    }
+  }
+]

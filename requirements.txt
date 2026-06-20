@@ -1,0 +1,12 @@
+# Dependencies are managed in pyproject.toml.
+# For development install:
+#     pip install -e ".[dev]"
+# For production install:
+#     pip install -e ".[api]"
+# For ingestion-only:
+#     pip install -e "."
+#
+# This file is kept as a thin pointer for tooling that still expects it.
+# To regenerate a pinned requirements.lock, use:
+#     pip install pip-tools && pip-compile --extra=dev --output-file=requirements.lock pyproject.toml
+-e .

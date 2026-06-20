@@ -1,0 +1,105 @@
+# --------------------------------------------------------------------------
+# Python bytecode and caches
+# --------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# --------------------------------------------------------------------------
+# Virtual environments
+# --------------------------------------------------------------------------
+.venv/
+venv/
+env/
+
+# --------------------------------------------------------------------------
+# Build artifacts
+# --------------------------------------------------------------------------
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+
+# --------------------------------------------------------------------------
+# Tool caches
+# --------------------------------------------------------------------------
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.tox/
+
+# --------------------------------------------------------------------------
+# Coverage
+# --------------------------------------------------------------------------
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+
+# --------------------------------------------------------------------------
+# Secrets and local config
+# --------------------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+
+# --------------------------------------------------------------------------
+# Runtime artifacts
+# --------------------------------------------------------------------------
+logs/
+chunking/output/
+chunking/logs/
+# Raw + cleaned chunk versions land under output/v1, output/v2_cleaned, etc.
+# The chunking/output/ line above already covers this — adding the path-
+# agnostic pattern below as a belt-and-braces guard in case the output dir
+# ever moves out from under chunking/.
+output/v1/
+output/v2_cleaned/
+
+# --------------------------------------------------------------------------
+# Processed chunk JSONs — these are ingestion artifacts, regenerable via
+# `python scripts/chunker.py` → `clean_chunks.py` → `ingest_pinecone.py` /
+# `ingest_neo4j.py`. Source PDFs live in documents/ (kept tracked).
+# Pattern: ignore every category subfolder under data/, but keep data/eval/
+# so the retrieval-log + labels structure stays visible.
+# --------------------------------------------------------------------------
+data/*/
+!data/eval/
+!data/.gitkeep
+
+# --------------------------------------------------------------------------
+# Source PDFs — these are inputs to the chunking pipeline, often hundreds of
+# MB each (well over GitHub's 100 MB hard limit). Keep them locally; don't
+# commit. Re-acquire from the publisher when setting up a new dev box.
+# The entire documents/ tree is local-only — source textbooks are not
+# redistributed via the repo; chunks are regenerated from local copies.
+# --------------------------------------------------------------------------
+documents/
+
+# --------------------------------------------------------------------------
+# IDE / editor / agent tooling
+# --------------------------------------------------------------------------
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+
+# --------------------------------------------------------------------------
+# Frontend / static assets (this repo ships an API-only service — any HTML,
+# bundled JS, or test UI is treated as out-of-tree. A separately hosted
+# frontend integrates via docs/FRONTEND.md, not by being committed here.)
+# --------------------------------------------------------------------------
+app/static/
+static/
+*.html
+*.htm
+
+# --------------------------------------------------------------------------
+# Local notes / scratch
+# --------------------------------------------------------------------------
+*.local.md
+scratch/
+tmp/

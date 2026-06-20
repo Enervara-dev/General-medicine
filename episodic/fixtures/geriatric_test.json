@@ -1,0 +1,397 @@
+{
+  "user_id": "geriatric_test",
+  "description": "Elderly patient with multiple chronic conditions (HTN, T2DM, CKD), penicillin allergy, polypharmacy, a 90-day-old fall episode (decay test) and recent dizziness. Designed to exercise chronic persistence, allergy persistence, polypharmacy retrieval, and decay.",
+  "episodes": [
+    {
+      "_days_ago": 1500,
+      "summary": "Hypertension diagnosed; on long-term antihypertensive therapy.",
+      "category": "condition",
+      "entities": {
+        "symptoms": [],
+        "conditions": ["essential hypertension"],
+        "medications": [],
+        "labs": [],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "ongoing",
+        "onset": "approximately 4 years ago",
+        "frequency": "",
+        "progression": "controlled"
+      },
+      "severity": "moderate",
+      "clinical_priority": "high",
+      "confidence": 0.98,
+      "source": "user_self_report",
+      "embedding_text": "Long-standing essential hypertension diagnosed four years ago, currently controlled"
+    },
+    {
+      "_days_ago": 1200,
+      "summary": "Type 2 diabetes mellitus diagnosed at age 68; on oral hypoglycemics.",
+      "category": "condition",
+      "entities": {
+        "symptoms": [],
+        "conditions": ["type 2 diabetes mellitus"],
+        "medications": [],
+        "labs": [],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "ongoing",
+        "onset": "approximately 3 years ago",
+        "frequency": "",
+        "progression": "stable on therapy"
+      },
+      "severity": "moderate",
+      "clinical_priority": "high",
+      "confidence": 0.98,
+      "source": "user_self_report",
+      "embedding_text": "Type 2 diabetes mellitus diagnosed three years ago, on oral hypoglycemic therapy"
+    },
+    {
+      "_days_ago": 600,
+      "summary": "Chronic kidney disease stage 3a confirmed by nephrology.",
+      "category": "condition",
+      "entities": {
+        "symptoms": [],
+        "conditions": ["chronic kidney disease stage 3a"],
+        "medications": [],
+        "labs": ["eGFR 52"],
+        "body_parts": ["kidneys"]
+      },
+      "temporal_data": {
+        "duration": "ongoing",
+        "onset": "approximately 18 months ago",
+        "frequency": "",
+        "progression": "slow decline"
+      },
+      "severity": "moderate",
+      "clinical_priority": "high",
+      "confidence": 0.97,
+      "source": "user_self_report",
+      "embedding_text": "Chronic kidney disease stage 3a with eGFR 52, slowly declining renal function"
+    },
+    {
+      "_days_ago": 3000,
+      "summary": "Penicillin allergy with prior rash; avoidance maintained for decades.",
+      "category": "allergy",
+      "entities": {
+        "symptoms": ["rash", "urticaria"],
+        "conditions": [],
+        "medications": ["penicillin"],
+        "labs": [],
+        "body_parts": ["skin"]
+      },
+      "temporal_data": {
+        "duration": "lifelong",
+        "onset": "documented decades ago",
+        "frequency": "",
+        "progression": "consistent"
+      },
+      "severity": "moderate",
+      "clinical_priority": "critical",
+      "confidence": 0.99,
+      "source": "user_self_report",
+      "embedding_text": "Penicillin allergy with prior cutaneous reaction, lifelong avoidance, no beta-lactam antibiotics"
+    },
+    {
+      "_days_ago": 1500,
+      "summary": "Lisinopril 10 mg once daily for hypertension.",
+      "category": "medication",
+      "entities": {
+        "symptoms": [],
+        "conditions": ["essential hypertension"],
+        "medications": ["lisinopril 10 mg"],
+        "labs": [],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "ongoing",
+        "onset": "four years ago",
+        "frequency": "once daily",
+        "progression": "stable"
+      },
+      "severity": "unknown",
+      "clinical_priority": "high",
+      "confidence": 0.98,
+      "source": "user_self_report",
+      "embedding_text": "Lisinopril 10 mg once daily for hypertension management, long-term"
+    },
+    {
+      "_days_ago": 1200,
+      "summary": "Metformin 500 mg twice daily for type 2 diabetes.",
+      "category": "medication",
+      "entities": {
+        "symptoms": [],
+        "conditions": ["type 2 diabetes mellitus"],
+        "medications": ["metformin 500 mg"],
+        "labs": [],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "ongoing",
+        "onset": "three years ago",
+        "frequency": "twice daily",
+        "progression": "stable"
+      },
+      "severity": "unknown",
+      "clinical_priority": "high",
+      "confidence": 0.98,
+      "source": "user_self_report",
+      "embedding_text": "Metformin 500 mg twice daily for type 2 diabetes glycemic control, long-term"
+    },
+    {
+      "_days_ago": 700,
+      "summary": "Atorvastatin 20 mg nightly for primary prevention given diabetes and HTN.",
+      "category": "medication",
+      "entities": {
+        "symptoms": [],
+        "conditions": ["hyperlipidemia"],
+        "medications": ["atorvastatin 20 mg"],
+        "labs": [],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "ongoing",
+        "onset": "approximately 2 years ago",
+        "frequency": "nightly",
+        "progression": "tolerated"
+      },
+      "severity": "unknown",
+      "clinical_priority": "medium",
+      "confidence": 0.97,
+      "source": "user_self_report",
+      "embedding_text": "Atorvastatin 20 mg nightly for cardiovascular primary prevention in diabetic hypertensive patient"
+    },
+    {
+      "_days_ago": 700,
+      "summary": "Aspirin 81 mg daily for cardiovascular prophylaxis.",
+      "category": "medication",
+      "entities": {
+        "symptoms": [],
+        "conditions": [],
+        "medications": ["aspirin 81 mg"],
+        "labs": [],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "ongoing",
+        "onset": "approximately 2 years ago",
+        "frequency": "daily",
+        "progression": "tolerated"
+      },
+      "severity": "unknown",
+      "clinical_priority": "medium",
+      "confidence": 0.96,
+      "source": "user_self_report",
+      "embedding_text": "Low-dose aspirin 81 mg daily for cardiovascular prophylaxis"
+    },
+    {
+      "_days_ago": 365,
+      "summary": "Vitamin D3 1000 IU daily for supplementation.",
+      "category": "medication",
+      "entities": {
+        "symptoms": [],
+        "conditions": [],
+        "medications": ["vitamin D3 1000 IU"],
+        "labs": [],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "ongoing",
+        "onset": "one year ago",
+        "frequency": "daily",
+        "progression": "stable"
+      },
+      "severity": "unknown",
+      "clinical_priority": "low",
+      "confidence": 0.94,
+      "source": "user_self_report",
+      "embedding_text": "Vitamin D3 1000 IU daily oral supplementation"
+    },
+    {
+      "_days_ago": 3650,
+      "summary": "Quit smoking 10 years ago after 30-year history.",
+      "category": "lifestyle",
+      "entities": {
+        "symptoms": [],
+        "conditions": ["tobacco use disorder, in remission"],
+        "medications": [],
+        "labs": [],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "30 years smoking, 10 years quit",
+        "onset": "ceased a decade ago",
+        "frequency": "previously 1 pack daily",
+        "progression": "remained smoke-free"
+      },
+      "severity": "unknown",
+      "clinical_priority": "low",
+      "confidence": 0.92,
+      "source": "user_self_report",
+      "embedding_text": "Former smoker, quit 10 years ago after 30-year one-pack-daily history, sustained cessation"
+    },
+    {
+      "_days_ago": 180,
+      "summary": "Community-acquired pneumonia, treated with azithromycin, fully resolved.",
+      "category": "consultation",
+      "entities": {
+        "symptoms": ["cough", "fever", "fatigue"],
+        "conditions": ["community-acquired pneumonia, resolved"],
+        "medications": ["azithromycin"],
+        "labs": ["chest x-ray - infiltrate"],
+        "body_parts": ["lungs"]
+      },
+      "temporal_data": {
+        "duration": "10 days",
+        "onset": "approximately 6 months ago",
+        "frequency": "single episode",
+        "progression": "resolved"
+      },
+      "severity": "moderate",
+      "clinical_priority": "medium",
+      "confidence": 0.95,
+      "source": "user_self_report",
+      "embedding_text": "Community-acquired pneumonia six months ago treated with azithromycin, fully resolved no sequelae"
+    },
+    {
+      "_days_ago": 90,
+      "summary": "Fall in bathroom slipping on wet floor; bruise on hip, no fracture.",
+      "category": "symptom",
+      "entities": {
+        "symptoms": ["fall", "hip bruise", "soft tissue injury"],
+        "conditions": [],
+        "medications": [],
+        "labs": ["hip x-ray - no fracture"],
+        "body_parts": ["hip", "right side"]
+      },
+      "temporal_data": {
+        "duration": "single event",
+        "onset": "approximately 3 months ago",
+        "frequency": "first fall this year",
+        "progression": "resolved over 2 weeks"
+      },
+      "severity": "moderate",
+      "clinical_priority": "high",
+      "confidence": 0.94,
+      "source": "user_self_report",
+      "embedding_text": "Fall in bathroom on wet floor with right hip bruise three months ago, hip x-ray showed no fracture, soft tissue injury resolved"
+    },
+    {
+      "_days_ago": 60,
+      "summary": "Annual eye exam: mild non-proliferative diabetic retinopathy noted.",
+      "category": "consultation",
+      "entities": {
+        "symptoms": [],
+        "conditions": ["mild non-proliferative diabetic retinopathy"],
+        "medications": [],
+        "labs": ["dilated fundus exam"],
+        "body_parts": ["eyes", "retina"]
+      },
+      "temporal_data": {
+        "duration": "annual screening",
+        "onset": "two months ago",
+        "frequency": "yearly",
+        "progression": "mild changes"
+      },
+      "severity": "mild",
+      "clinical_priority": "medium",
+      "confidence": 0.96,
+      "source": "user_self_report",
+      "embedding_text": "Annual ophthalmology exam with mild non-proliferative diabetic retinopathy noted, dilated fundus exam"
+    },
+    {
+      "_days_ago": 30,
+      "summary": "HbA1c 7.6 percent, fasting glucose 142 mg/dL; diabetes control suboptimal.",
+      "category": "lab",
+      "entities": {
+        "symptoms": [],
+        "conditions": ["type 2 diabetes mellitus"],
+        "medications": [],
+        "labs": ["HbA1c 7.6", "fasting glucose 142"],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "",
+        "onset": "routine check",
+        "frequency": "quarterly",
+        "progression": "slightly elevated from prior 7.2"
+      },
+      "severity": "moderate",
+      "clinical_priority": "high",
+      "confidence": 0.99,
+      "source": "user_self_report",
+      "embedding_text": "Hemoglobin A1c 7.6 percent with fasting glucose 142, suboptimal diabetic control trending upward"
+    },
+    {
+      "_days_ago": 10,
+      "summary": "Home BP readings averaging 156/92 over past week; uncontrolled hypertension.",
+      "category": "lab",
+      "entities": {
+        "symptoms": [],
+        "conditions": ["uncontrolled hypertension"],
+        "medications": [],
+        "labs": ["BP 156/92"],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "one week",
+        "onset": "noticed past week",
+        "frequency": "twice daily readings",
+        "progression": "elevated from baseline"
+      },
+      "severity": "moderate",
+      "clinical_priority": "high",
+      "confidence": 0.94,
+      "source": "user_self_report",
+      "embedding_text": "Home blood pressure averaging 156 over 92 for one week, uncontrolled hypertension, elevated from baseline"
+    },
+    {
+      "_days_ago": 5,
+      "summary": "Lightheadedness on standing for 3 days, especially morning; near-syncope twice.",
+      "category": "symptom",
+      "entities": {
+        "symptoms": ["lightheadedness", "orthostatic dizziness", "near-syncope"],
+        "conditions": [],
+        "medications": [],
+        "labs": [],
+        "body_parts": ["head"]
+      },
+      "temporal_data": {
+        "duration": "3 days",
+        "onset": "this week, mornings",
+        "frequency": "daily, on standing",
+        "progression": "worsening"
+      },
+      "severity": "moderate",
+      "clinical_priority": "high",
+      "confidence": 0.93,
+      "source": "user_self_report",
+      "embedding_text": "Orthostatic lightheadedness three days with two near-syncope episodes, especially morning, possibly medication-related"
+    },
+    {
+      "_days_ago": 5,
+      "summary": "Primary care follow-up scheduled in 3 days for BP and dizziness review.",
+      "category": "followup",
+      "entities": {
+        "symptoms": [],
+        "conditions": [],
+        "medications": [],
+        "labs": [],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "",
+        "onset": "scheduled this week",
+        "frequency": "",
+        "progression": ""
+      },
+      "severity": "unknown",
+      "clinical_priority": "high",
+      "confidence": 0.95,
+      "source": "user_self_report",
+      "embedding_text": "Primary care appointment scheduled for hypertension uncontrolled and orthostatic dizziness review"
+    }
+  ]
+}

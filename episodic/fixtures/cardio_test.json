@@ -1,0 +1,305 @@
+{
+  "user_id": "cardio_test",
+  "description": "Cardiology patient: chronic HTN, aspirin allergy, recurring exertional chest pain over 75 days, one ER visit, statin started. Designed to exercise contradiction, decay, compression, and allergy persistence.",
+  "episodes": [
+    {
+      "_days_ago": 1095,
+      "summary": "Diagnosed with essential hypertension by primary care; long-standing condition.",
+      "category": "condition",
+      "entities": {
+        "symptoms": [],
+        "conditions": ["essential hypertension"],
+        "medications": [],
+        "labs": [],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "ongoing",
+        "onset": "approximately 3 years ago",
+        "frequency": "",
+        "progression": "stable"
+      },
+      "severity": "moderate",
+      "clinical_priority": "high",
+      "confidence": 0.95,
+      "source": "user_self_report",
+      "embedding_text": "Long-standing essential hypertension diagnosed approximately 3 years ago, currently stable"
+    },
+    {
+      "_days_ago": 800,
+      "summary": "Aspirin allergy with prior urticaria reaction.",
+      "category": "allergy",
+      "entities": {
+        "symptoms": ["urticaria", "rash"],
+        "conditions": [],
+        "medications": ["aspirin"],
+        "labs": [],
+        "body_parts": ["skin"]
+      },
+      "temporal_data": {
+        "duration": "lifelong",
+        "onset": "first noted years ago",
+        "frequency": "",
+        "progression": ""
+      },
+      "severity": "moderate",
+      "clinical_priority": "critical",
+      "confidence": 0.98,
+      "source": "user_self_report",
+      "embedding_text": "Aspirin allergy with prior urticaria reaction, must avoid acetylsalicylic acid"
+    },
+    {
+      "_days_ago": 75,
+      "summary": "Mild substernal chest tightness while lifting heavy boxes, resolved with rest.",
+      "category": "symptom",
+      "entities": {
+        "symptoms": ["chest tightness", "exertional discomfort"],
+        "conditions": [],
+        "medications": [],
+        "labs": [],
+        "body_parts": ["chest", "substernal"]
+      },
+      "temporal_data": {
+        "duration": "10 minutes",
+        "onset": "during heavy lifting",
+        "frequency": "first episode",
+        "progression": "resolved with rest"
+      },
+      "severity": "mild",
+      "clinical_priority": "medium",
+      "confidence": 0.9,
+      "source": "user_self_report",
+      "embedding_text": "Mild substernal chest tightness during exertion, brief, resolved with rest"
+    },
+    {
+      "_days_ago": 50,
+      "summary": "Chest pressure climbing two flights of stairs, lasted several minutes.",
+      "category": "symptom",
+      "entities": {
+        "symptoms": ["chest pressure", "exertional chest pain", "mild dyspnea"],
+        "conditions": [],
+        "medications": [],
+        "labs": [],
+        "body_parts": ["chest"]
+      },
+      "temporal_data": {
+        "duration": "5-7 minutes",
+        "onset": "climbing stairs",
+        "frequency": "second episode",
+        "progression": "improving with rest"
+      },
+      "severity": "moderate",
+      "clinical_priority": "high",
+      "confidence": 0.92,
+      "source": "user_self_report",
+      "embedding_text": "Substernal chest pressure on exertion climbing stairs with mild shortness of breath"
+    },
+    {
+      "_days_ago": 40,
+      "summary": "ER visit for severe chest pain radiating to left arm; cardiac workup initiated.",
+      "category": "consultation",
+      "entities": {
+        "symptoms": ["chest pain", "left arm radiation", "diaphoresis"],
+        "conditions": [],
+        "medications": [],
+        "labs": [],
+        "body_parts": ["chest", "left arm"]
+      },
+      "temporal_data": {
+        "duration": "30 minutes",
+        "onset": "at rest",
+        "frequency": "third episode but most severe",
+        "progression": "resolved in ER"
+      },
+      "severity": "severe",
+      "clinical_priority": "critical",
+      "confidence": 0.97,
+      "source": "user_self_report",
+      "embedding_text": "Emergency department visit for severe substernal chest pain radiating to left arm with diaphoresis, cardiac workup performed"
+    },
+    {
+      "_days_ago": 38,
+      "summary": "ECG showed borderline T-wave inversions in lateral leads.",
+      "category": "lab",
+      "entities": {
+        "symptoms": [],
+        "conditions": [],
+        "medications": [],
+        "labs": ["ECG", "T-wave inversion"],
+        "body_parts": ["heart"]
+      },
+      "temporal_data": {
+        "duration": "",
+        "onset": "ER workup",
+        "frequency": "",
+        "progression": ""
+      },
+      "severity": "moderate",
+      "clinical_priority": "high",
+      "confidence": 0.95,
+      "source": "user_self_report",
+      "embedding_text": "Twelve-lead ECG with borderline T-wave inversions in lateral leads, suspicious for ischemia"
+    },
+    {
+      "_days_ago": 32,
+      "summary": "Lipid panel: LDL 168 mg/dL, total cholesterol 248 mg/dL.",
+      "category": "lab",
+      "entities": {
+        "symptoms": [],
+        "conditions": ["hyperlipidemia"],
+        "medications": [],
+        "labs": ["LDL cholesterol 168", "total cholesterol 248"],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "",
+        "onset": "post-ER follow-up",
+        "frequency": "",
+        "progression": "elevated"
+      },
+      "severity": "moderate",
+      "clinical_priority": "high",
+      "confidence": 0.99,
+      "source": "user_self_report",
+      "embedding_text": "Hyperlipidemia with elevated LDL 168 and total cholesterol 248, lipid panel abnormal"
+    },
+    {
+      "_days_ago": 30,
+      "summary": "Started atorvastatin 40 mg nightly for elevated LDL.",
+      "category": "medication",
+      "entities": {
+        "symptoms": [],
+        "conditions": ["hyperlipidemia"],
+        "medications": ["atorvastatin 40 mg"],
+        "labs": [],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "ongoing",
+        "onset": "after lipid panel results",
+        "frequency": "nightly",
+        "progression": "newly started"
+      },
+      "severity": "moderate",
+      "clinical_priority": "high",
+      "confidence": 0.97,
+      "source": "user_self_report",
+      "embedding_text": "Atorvastatin 40 mg nightly started for elevated LDL and post-cardiac workup secondary prevention"
+    },
+    {
+      "_days_ago": 60,
+      "summary": "Quit smoking after 20-year history; on day one of cessation.",
+      "category": "lifestyle",
+      "entities": {
+        "symptoms": [],
+        "conditions": ["tobacco use disorder, in remission"],
+        "medications": [],
+        "labs": [],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "20 years of smoking, now quit",
+        "onset": "decision after chest symptoms",
+        "frequency": "previously 1 pack daily",
+        "progression": "smoke-free"
+      },
+      "severity": "unknown",
+      "clinical_priority": "medium",
+      "confidence": 0.9,
+      "source": "user_self_report",
+      "embedding_text": "Smoking cessation after 20-year one-pack-daily history, quit smoking following chest symptoms"
+    },
+    {
+      "_days_ago": 25,
+      "summary": "Chest pain again climbing stairs, milder than ER episode but recurring.",
+      "category": "symptom",
+      "entities": {
+        "symptoms": ["chest pain", "exertional angina-like"],
+        "conditions": [],
+        "medications": [],
+        "labs": [],
+        "body_parts": ["chest"]
+      },
+      "temporal_data": {
+        "duration": "4 minutes",
+        "onset": "climbing stairs",
+        "frequency": "fourth episode",
+        "progression": "stable in severity"
+      },
+      "severity": "moderate",
+      "clinical_priority": "high",
+      "confidence": 0.92,
+      "source": "user_self_report",
+      "embedding_text": "Recurrent substernal chest pain on exertion climbing stairs, anginal pattern continues"
+    },
+    {
+      "_days_ago": 12,
+      "summary": "Brief chest discomfort while walking briskly; resolved without rest.",
+      "category": "symptom",
+      "entities": {
+        "symptoms": ["chest discomfort", "exertional"],
+        "conditions": [],
+        "medications": [],
+        "labs": [],
+        "body_parts": ["chest"]
+      },
+      "temporal_data": {
+        "duration": "2 minutes",
+        "onset": "brisk walking",
+        "frequency": "fifth episode",
+        "progression": "self-resolving"
+      },
+      "severity": "mild",
+      "clinical_priority": "high",
+      "confidence": 0.88,
+      "source": "user_self_report",
+      "embedding_text": "Brief exertional chest discomfort while walking briskly, self-resolved without rest"
+    },
+    {
+      "_days_ago": 5,
+      "summary": "Chest tightness at rest watching television, lasted 8 minutes.",
+      "category": "symptom",
+      "entities": {
+        "symptoms": ["chest tightness", "rest pain"],
+        "conditions": [],
+        "medications": [],
+        "labs": [],
+        "body_parts": ["chest"]
+      },
+      "temporal_data": {
+        "duration": "8 minutes",
+        "onset": "at rest",
+        "frequency": "first rest-pain episode",
+        "progression": "worsening pattern"
+      },
+      "severity": "moderate",
+      "clinical_priority": "critical",
+      "confidence": 0.93,
+      "source": "user_self_report",
+      "embedding_text": "New chest tightness at rest at home, eight minutes duration, worsening progression of cardiac symptoms"
+    },
+    {
+      "_days_ago": 5,
+      "summary": "Cardiology follow-up scheduled in 7 days; stress test ordered.",
+      "category": "followup",
+      "entities": {
+        "symptoms": [],
+        "conditions": [],
+        "medications": [],
+        "labs": ["exercise stress test"],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "",
+        "onset": "scheduled next week",
+        "frequency": "",
+        "progression": ""
+      },
+      "severity": "unknown",
+      "clinical_priority": "high",
+      "confidence": 0.95,
+      "source": "user_self_report",
+      "embedding_text": "Cardiology follow-up appointment scheduled with exercise stress test pending for chest pain workup"
+    }
+  ]
+}

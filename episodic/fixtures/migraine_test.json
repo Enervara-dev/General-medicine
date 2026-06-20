@@ -1,0 +1,282 @@
+{
+  "user_id": "migraine_test",
+  "description": "Migraine patient: 5 recurring migraine episodes over 60 days (compression target), propranolol trial started then stopped (contradiction target), neurology consult, normal MRI. Designed to exercise compression, contradiction, and recurrence boost.",
+  "episodes": [
+    {
+      "_days_ago": 60,
+      "summary": "Throbbing right-sided headache with photophobia, lasted 6 hours.",
+      "category": "symptom",
+      "entities": {
+        "symptoms": ["migraine", "throbbing headache", "photophobia"],
+        "conditions": [],
+        "medications": [],
+        "labs": [],
+        "body_parts": ["head", "right temple"]
+      },
+      "temporal_data": {
+        "duration": "6 hours",
+        "onset": "mid-morning",
+        "frequency": "first this season",
+        "progression": "self-resolved"
+      },
+      "severity": "moderate",
+      "clinical_priority": "medium",
+      "confidence": 0.92,
+      "source": "user_self_report",
+      "embedding_text": "Right-sided throbbing migraine headache with photophobia lasting six hours"
+    },
+    {
+      "_days_ago": 50,
+      "summary": "Neurology consultation for recurring headaches; migraine without aura diagnosed.",
+      "category": "consultation",
+      "entities": {
+        "symptoms": ["migraine"],
+        "conditions": ["migraine without aura"],
+        "medications": [],
+        "labs": [],
+        "body_parts": ["head"]
+      },
+      "temporal_data": {
+        "duration": "45-minute visit",
+        "onset": "scheduled appointment",
+        "frequency": "",
+        "progression": ""
+      },
+      "severity": "moderate",
+      "clinical_priority": "high",
+      "confidence": 0.96,
+      "source": "user_self_report",
+      "embedding_text": "Neurology consultation for recurring headaches, diagnosed migraine without aura"
+    },
+    {
+      "_days_ago": 48,
+      "summary": "Brain MRI ordered to rule out secondary causes of headache.",
+      "category": "lab",
+      "entities": {
+        "symptoms": [],
+        "conditions": [],
+        "medications": [],
+        "labs": ["brain MRI"],
+        "body_parts": ["brain"]
+      },
+      "temporal_data": {
+        "duration": "",
+        "onset": "post-neurology visit",
+        "frequency": "",
+        "progression": ""
+      },
+      "severity": "unknown",
+      "clinical_priority": "medium",
+      "confidence": 0.95,
+      "source": "user_self_report",
+      "embedding_text": "Brain MRI ordered to rule out secondary headache etiology"
+    },
+    {
+      "_days_ago": 45,
+      "summary": "Severe migraine with nausea, missed half day of work.",
+      "category": "symptom",
+      "entities": {
+        "symptoms": ["migraine", "nausea", "headache"],
+        "conditions": [],
+        "medications": [],
+        "labs": [],
+        "body_parts": ["head"]
+      },
+      "temporal_data": {
+        "duration": "8 hours",
+        "onset": "early morning waking",
+        "frequency": "second episode in two weeks",
+        "progression": "worsening intensity"
+      },
+      "severity": "severe",
+      "clinical_priority": "high",
+      "confidence": 0.95,
+      "source": "user_self_report",
+      "embedding_text": "Severe migraine with nausea lasting eight hours, recurrent pattern worsening"
+    },
+    {
+      "_days_ago": 42,
+      "summary": "Brain MRI normal, no structural abnormalities found.",
+      "category": "lab",
+      "entities": {
+        "symptoms": [],
+        "conditions": [],
+        "medications": [],
+        "labs": ["brain MRI - normal"],
+        "body_parts": ["brain"]
+      },
+      "temporal_data": {
+        "duration": "",
+        "onset": "imaging follow-up",
+        "frequency": "",
+        "progression": ""
+      },
+      "severity": "unknown",
+      "clinical_priority": "medium",
+      "confidence": 0.98,
+      "source": "user_self_report",
+      "embedding_text": "Brain MRI normal with no structural abnormalities, ruled out secondary causes"
+    },
+    {
+      "_days_ago": 40,
+      "summary": "Started propranolol 40 mg twice daily for migraine prophylaxis.",
+      "category": "medication",
+      "entities": {
+        "symptoms": [],
+        "conditions": ["migraine"],
+        "medications": ["propranolol 40 mg"],
+        "labs": [],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "started",
+        "onset": "post-MRI",
+        "frequency": "twice daily",
+        "progression": "newly initiated"
+      },
+      "severity": "moderate",
+      "clinical_priority": "high",
+      "confidence": 0.96,
+      "source": "user_self_report",
+      "embedding_text": "Propranolol 40 mg twice daily initiated for migraine prophylaxis after normal MRI"
+    },
+    {
+      "_days_ago": 35,
+      "summary": "Reduced caffeine intake after neurologist suggested it as trigger.",
+      "category": "lifestyle",
+      "entities": {
+        "symptoms": [],
+        "conditions": [],
+        "medications": [],
+        "labs": [],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "ongoing",
+        "onset": "after neurology visit",
+        "frequency": "from 4 cups to 1 cup daily",
+        "progression": "improving adherence"
+      },
+      "severity": "unknown",
+      "clinical_priority": "low",
+      "confidence": 0.88,
+      "source": "user_self_report",
+      "embedding_text": "Caffeine intake reduced from four cups to one cup daily as migraine trigger management"
+    },
+    {
+      "_days_ago": 30,
+      "summary": "Moderate migraine, manageable with rest, propranolol seems to help.",
+      "category": "symptom",
+      "entities": {
+        "symptoms": ["migraine", "headache"],
+        "conditions": [],
+        "medications": ["propranolol"],
+        "labs": [],
+        "body_parts": ["head"]
+      },
+      "temporal_data": {
+        "duration": "3 hours",
+        "onset": "afternoon",
+        "frequency": "third episode",
+        "progression": "shorter than prior episodes"
+      },
+      "severity": "moderate",
+      "clinical_priority": "medium",
+      "confidence": 0.9,
+      "source": "user_self_report",
+      "embedding_text": "Moderate migraine three hours, shorter duration on propranolol prophylaxis, improving"
+    },
+    {
+      "_days_ago": 15,
+      "summary": "Migraine flare during stressful work week, missed full day of work.",
+      "category": "symptom",
+      "entities": {
+        "symptoms": ["migraine", "headache", "stress trigger"],
+        "conditions": [],
+        "medications": [],
+        "labs": [],
+        "body_parts": ["head"]
+      },
+      "temporal_data": {
+        "duration": "10 hours",
+        "onset": "morning after poor sleep",
+        "frequency": "fourth episode",
+        "progression": "severe despite propranolol"
+      },
+      "severity": "severe",
+      "clinical_priority": "high",
+      "confidence": 0.94,
+      "source": "user_self_report",
+      "embedding_text": "Severe migraine ten hours during work stress, breakthrough on propranolol prophylaxis"
+    },
+    {
+      "_days_ago": 12,
+      "summary": "Fatigue and exercise intolerance reported, suspected propranolol side effect.",
+      "category": "symptom",
+      "entities": {
+        "symptoms": ["fatigue", "exercise intolerance"],
+        "conditions": [],
+        "medications": ["propranolol"],
+        "labs": [],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "ongoing several days",
+        "onset": "while on propranolol",
+        "frequency": "daily",
+        "progression": "worsening"
+      },
+      "severity": "moderate",
+      "clinical_priority": "medium",
+      "confidence": 0.85,
+      "source": "user_self_report",
+      "embedding_text": "Fatigue and exercise intolerance several days, likely propranolol side effect"
+    },
+    {
+      "_days_ago": 10,
+      "summary": "Propranolol discontinued by neurology due to fatigue side effect.",
+      "category": "medication",
+      "entities": {
+        "symptoms": [],
+        "conditions": ["migraine"],
+        "medications": ["propranolol - discontinued"],
+        "labs": [],
+        "body_parts": []
+      },
+      "temporal_data": {
+        "duration": "drug stopped",
+        "onset": "after side effects",
+        "frequency": "no longer taken",
+        "progression": "discontinued"
+      },
+      "severity": "moderate",
+      "clinical_priority": "high",
+      "confidence": 0.96,
+      "source": "user_self_report",
+      "embedding_text": "Propranolol discontinued for migraine prophylaxis due to fatigue side effects, no longer taking"
+    },
+    {
+      "_days_ago": 3,
+      "summary": "Severe migraine with vomiting, woke at 4am with throbbing pain.",
+      "category": "symptom",
+      "entities": {
+        "symptoms": ["migraine", "vomiting", "severe headache"],
+        "conditions": [],
+        "medications": [],
+        "labs": [],
+        "body_parts": ["head"]
+      },
+      "temporal_data": {
+        "duration": "12 hours",
+        "onset": "4am awakening",
+        "frequency": "fifth episode",
+        "progression": "worst episode"
+      },
+      "severity": "severe",
+      "clinical_priority": "high",
+      "confidence": 0.96,
+      "source": "user_self_report",
+      "embedding_text": "Severe migraine with vomiting twelve hours, woke at 4am with throbbing pain, worst episode of pattern"
+    }
+  ]
+}
