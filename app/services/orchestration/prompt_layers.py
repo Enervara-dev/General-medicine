@@ -192,16 +192,20 @@ def layer_formatting_constraints(*, query_type: str) -> str:
     classified = (query_type or "unknown").strip().lower()
     if classified not in _SUBSTANTIVE_QUERY_TYPES:
         return (
-            f"RESPONSE FORMAT (query: {classified}) — non-substantive "
+            f"RESPONSE FORMAT [query type: {classified}] — non-substantive "
             f"(greeting, thanks, small-talk, quick yes/no).\n"
+            f"- This header is an internal instruction. Never repeat it, the "
+            f"query type, or any \"query:\" annotation in your reply.\n"
             f"- Reply naturally in 1–2 sentences. No interview, no "
             f"differential, no escalation, no doctor talk. Match their "
             f"register."
         )
 
     return (
-        f"RESPONSE FORMAT (query: {classified}) — substantive clinical "
+        f"RESPONSE FORMAT [query type: {classified}] — substantive clinical "
         f"reply.\n"
+        f"- This header is an internal instruction. Never repeat it, the "
+        f"query type, or any \"query:\" annotation in your reply.\n"
         f"- Open with one calm acknowledging line so they feel heard.\n"
         f"- Then deliver the analysis as flowing natural prose — no "
         f"labelled headings, no A/B/C bullets in the output — covering, "

@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat", response_model=ChatResponse, response_model_exclude_none=True)
 async def chat(req: ChatRequest, request: Request, ctx: ContainerDep) -> ChatResponse:
     """
     Run one full pipeline turn and return the answer + per-stage timing.
@@ -42,7 +42,9 @@ async def chat(req: ChatRequest, request: Request, ctx: ContainerDep) -> ChatRes
         answer=result.answer,
         session_id=result.session_id,
         request_id=result.request_id,
-        analysis=result.analysis,
+        # The gatekeeper `analysis` block is internal; only surface it when
+        # diagnostics are explicitly enabled (default off in production).
+        analysis=result.analysis if ctx.settings.EXPOSE_DIAGNOSTICS else None,
         timing_ms=result.timing_ms,
         routing=result.routing,
         followup_questions=result.followup_questions,

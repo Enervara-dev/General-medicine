@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     # tighten this for production once the real frontend URL is known).
     # Example: "https://app.enervera.com,https://staging.enervera.com"
     CORS_ORIGINS: str = "*"
+    # When true, /chat includes the internal gatekeeper `analysis` block
+    # (intent, risk_level, medical_entities, rewritten_query, final_action) in
+    # the JSON response. Default false so production never exposes the query
+    # analyser's internals; enable only for local debugging.
+    EXPOSE_DIAGNOSTICS: bool = False
 
     # ----- Pinecone (vector index) -----
     PINECONE_API_KEY: Optional[str] = None

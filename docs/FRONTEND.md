@@ -187,7 +187,9 @@ Field rules:
   "answer": "Hey Aarav — that kind of chest tightness, especially given your history…",
   "session_id": "patient-42-session-2025-05-19",
   "request_id": "01J0X7K8R2M3Z4ABCDEF1234XY",       // also echoed in the X-Request-ID header
-  "analysis": {                                       // gatekeeper LLM output
+  // gatekeeper LLM output — ONLY present when the backend runs with
+  // EXPOSE_DIAGNOSTICS=true (off in production). Treat as optional/absent.
+  "analysis": {
     "intent": "symptom_query",
     "risk_level": "low",
     "final_action": "retrieve"
