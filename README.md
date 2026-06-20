@@ -2,7 +2,7 @@
 
 A clinical question-answering service that fuses dense vector search (Pinecone), a structured medical knowledge graph (Neo4j), Redis-backed short-term session memory, and a Pinecone-backed long-term episodic memory — exposed as an async **FastAPI** service that streams Gemini answers behind a multi-stage safety, routing, and retrieval pipeline.
 
-> ⚠️ **Disclaimer** — This system is for informational and educational use only. It does not provide medical diagnoses. Always consult a qualified healthcare professional.
+
 
 ---
 
