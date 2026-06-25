@@ -3,6 +3,15 @@ import sys
 from uuid import uuid4
 
 
+def _stream_blocks_to_stdout(pipeline, query_text: str, session_id: str, user_id: str | None) -> None:
+    """Drive run_stream() and print each validated block as one NDJSON line."""
+    from graphrag.validators.answer_validator import block_to_line
+
+    for block in pipeline.run_stream(query_text, session_id=session_id, user_id=user_id):
+        # block_to_line already appends "\n"; flush so blocks appear as they arrive.
+        print(block_to_line(block), end="", flush=True)
+
+
 def _print_banner(
     session_id: str,
     redis_url: str | None,
@@ -108,7 +117,7 @@ def run_query(
             print("-" * 72)
             print(query_text)
             print("-" * 72 + "\n")
-            pipeline.run(query_text, session_id=session_id, user_id=user_id)
+            _stream_blocks_to_stdout(pipeline, query_text, session_id, user_id)
             if show_memory:
                 _print_memory_snapshot(pipeline, session_id)
             return
@@ -122,7 +131,7 @@ def run_query(
                     continue
 
                 print("\nRunning memory-aware GraphRAG...\n")
-                pipeline.run(user_input, session_id=session_id, user_id=user_id)
+                _stream_blocks_to_stdout(pipeline, user_input, session_id, user_id)
                 if show_memory:
                     _print_memory_snapshot(pipeline, session_id)
 

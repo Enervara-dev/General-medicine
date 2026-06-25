@@ -1,12 +1,45 @@
-# Dependencies are managed in pyproject.toml.
-# For development install:
-#     pip install -e ".[dev]"
-# For production install:
-#     pip install -e ".[api]"
-# For ingestion-only:
-#     pip install -e "."
+# ---------------------------------------------------------------------------
+# Production dependencies (core + [api]) — mirrors pyproject.toml.
 #
-# This file is kept as a thin pointer for tooling that still expects it.
-# To regenerate a pinned requirements.lock, use:
-#     pip install pip-tools && pip-compile --extra=dev --output-file=requirements.lock pyproject.toml
--e .
+# pyproject.toml is the source of truth. This flat list is kept in sync for
+# tooling / hosts that install from requirements.txt. It matches what the
+# Dockerfile installs (`pip install -e ".[api]"`): runtime + the FastAPI API.
+#
+# Install:  pip install -r requirements.txt
+# (Editable/dev install instead:  pip install -e ".[dev]")
+#
+# Not included here: [memory] (Postgres/pgvector — built but unwired) and
+# [test]/[dev] tooling. Install those via the pyproject extras when needed.
+# ---------------------------------------------------------------------------
+
+# --- Vector + graph + cache ---
+pinecone>=5.0.0
+neo4j>=5.0.0
+redis>=5.0.0
+
+# --- HTTP + env + serialization ---
+requests>=2.31.0
+python-dotenv>=1.0.0
+orjson>=3.9.0
+
+# --- Data validation / settings (also powers the NDJSON answer blocks) ---
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# --- Document ingestion ---
+PyMuPDF>=1.23.0
+openpyxl>=3.1.0
+pandas>=2.0.0
+tqdm>=4.66.0
+
+# --- Google Gemini SDK (answer, classification, extraction, summarization) ---
+google-genai>=1.0.0
+
+# --- System trust store bridge (enterprise Windows TLS interception) ---
+truststore>=0.10.0
+
+# --- API service ([api] extra) ---
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+httpx>=0.27.0
+structlog>=24.0.0

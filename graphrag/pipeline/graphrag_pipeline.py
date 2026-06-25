@@ -289,6 +289,152 @@ class GraphRAGPipeline:
         return answer
 
     # ------------------------------------------------------------------
+
+    def run_stream(self, query_text: str, session_id: str = "default", user_id: str | None = None):
+        """
+        STAGE-4 answer as a stream of validated UI blocks (NDJSON path).
+
+        Mirrors ``run()`` stage-for-stage, but STAGE 4 streams Gemini tokens
+        through the per-line block validator and yields ``Block`` objects as
+        they validate. refuse / emergency short-circuits yield canned builder
+        blocks instead of calling the LLM. The CLI prints each block as one
+        NDJSON line; transport stays uniform.
+        """
+        from graphrag.domain.messages import canned_blocks_for, is_terminal_turn
+        from graphrag.validators.answer_validator import render_blocks_text
+
+        original_query_text = query_text
+        emitted = []
+
+        memory_bundle = self.memory_adapter.load(session_id)
+        session = memory_bundle.session
+        working_memory = memory_bundle.working_memory
+        memory_query_text = self.memory_adapter.build_retrieval_query(
+            query_text=query_text, wm=working_memory,
+        )
+        analyzer_query_text = (
+            memory_query_text
+            if working_memory.turn_count or working_memory.has_summary
+            else query_text
+        )
+
+        trivial_skip = is_trivial_input(original_query_text) and working_memory.turn_count > 0
+        analysis = {} if trivial_skip else self.query_analyzer.analyze(analyzer_query_text)
+
+        # Canned short-circuit — refuse / emergency. NDJSON blocks, no LLM.
+        final_action = (analysis or {}).get("final_action")
+        if analysis and "error" not in analysis and final_action in {"refuse", "emergency_redirect"}:
+            for block in canned_blocks_for(final_action):
+                emitted.append(block)
+                yield block
+            self.memory_adapter.update_after_interaction(
+                session=session,
+                user_query=original_query_text,
+                assistant_answer=render_blocks_text(emitted),
+                analysis=analysis,
+                query_type="emergency" if final_action == "emergency_redirect" else "unknown",
+            )
+            return
+
+        terminal = is_terminal_turn(turn_count=working_memory.turn_count, analysis=analysis)
+        needs_followup = bool((analysis or {}).get("needs_followup"))
+        allow_followups = needs_followup and not terminal
+
+        rewritten = (analysis or {}).get("rewritten_query")
+        if rewritten and rewritten.strip() and rewritten != query_text:
+            query_text = rewritten
+
+        routing_mode, query_type = decide_routing(
+            analysis=analysis, wm=working_memory, raw_query=original_query_text,
+        )
+        config = get_config(query_type)
+        intent_str = (analysis or {}).get("intent") or "unknown"
+
+        if routing_mode == RoutingMode.NO_RETRIEVAL:
+            vector_top_k = reranker_top_k = graph_hops = 0
+        elif routing_mode == RoutingMode.MEMORY_FIRST:
+            vector_top_k = reranker_top_k = 3
+            graph_hops = 0
+        else:
+            vector_top_k = config.vector_top_k
+            reranker_top_k = config.reranker_top_k
+            graph_hops = config.graph_hops
+
+        retrieval_query_text = self.memory_adapter.build_retrieval_query(
+            query_text=query_text, wm=working_memory,
+        )
+
+        if vector_top_k > 0:
+            matches = self.pinecone_retriever.retrieve(
+                retrieval_query_text, vector_top_k=vector_top_k, reranker_top_k=reranker_top_k,
+            )
+        else:
+            matches = []
+
+        vector_context_str, extracted_entities, _ = self.entity_processor.process_matches(
+            matches,
+            priority_entity_types=config.priority_entity_types,
+            boost_drug_pairs=config.boost_drug_pairs,
+            query=retrieval_query_text,
+        )
+
+        if graph_hops > 0 and extracted_entities:
+            graph_context_list = self.neo4j_retriever.retrieve_relations(
+                extracted_entities, hops=graph_hops, limit=20,
+            )
+            graph_context_str = (
+                "\n".join([f"- {g}" for g in graph_context_list])
+                if graph_context_list else "No relevant relations found."
+            )
+        else:
+            graph_context_str = ""
+
+        episodic_context_str = ""
+        if user_id and self._episodic is not None:
+            episodic_context_str = self._load_episodic_context(
+                user_id=user_id, query_text=retrieval_query_text
+            )
+
+        memory_payload = self.memory_adapter.assemble_payload(
+            wm=working_memory,
+            user_query=original_query_text,
+            query_type=intent_str,
+            goal=config.goal,
+            vector_context=vector_context_str,
+            graph_context=graph_context_str,
+        )
+        combined_memory_context = memory_payload.memory_context
+        if episodic_context_str:
+            combined_memory_context = episodic_context_str.strip() + "\n\n" + combined_memory_context
+
+        block_stream = self.llm.generate_blocks(
+            query_text=original_query_text,
+            vector_context=vector_context_str,
+            graph_context=graph_context_str,
+            memory_context=combined_memory_context,
+            conversation_history=memory_payload.conversation_context,
+            query_type=intent_str,
+            goal=config.goal,
+            risk_level=str((analysis or {}).get("risk_level") or "none"),
+            terminal=terminal,
+            allow_followups=allow_followups,
+        )
+        for block in block_stream:
+            emitted.append(block)
+            yield block
+
+        self.memory_adapter.update_after_interaction(
+            session=session,
+            user_query=original_query_text,
+            assistant_answer=render_blocks_text(emitted),
+            analysis=analysis,
+            query_type=query_type.value,
+        )
+
+        if user_id and self._episodic is not None:
+            self._ingest_episodic_turn(user_id=user_id, utterance=original_query_text)
+
+    # ------------------------------------------------------------------
     # Episodic memory helpers (sync wrappers around the async services)
     # ------------------------------------------------------------------
 

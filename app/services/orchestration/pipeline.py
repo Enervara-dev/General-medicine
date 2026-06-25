@@ -42,6 +42,7 @@ from graphrag.query_understanding import (
 
 if TYPE_CHECKING:
     from app.container import AppContainer
+    from graphrag.schemas.blocks import Block
 
 logger = logging.getLogger(__name__)
 
@@ -449,6 +450,173 @@ class AsyncOrchestrator:
             yield {"type": "error", "error": {"code": "PIPELINE_ERROR", "message": str(exc)}}
 
     # ------------------------------------------------------------------
+    # Public — streaming typed UI blocks (NDJSON transport)
+    # ------------------------------------------------------------------
+
+    async def stream_blocks(
+        self,
+        *,
+        query: str,
+        session_id: str,
+        user_id: str | None,
+        request_id: str,
+    ) -> "AsyncIterator[Block]":
+        """
+        STAGE-4 answer as a stream of validated UI blocks.
+
+        Same pre-LLM stages as run()/stream(); STAGE 4 streams Gemini tokens
+        through the per-line block validator (partial recovery) and yields
+        Block objects as they validate — the first block reaches the client
+        without buffering the whole answer. refuse / emergency short-circuits
+        yield canned builder blocks instead of calling the LLM. The route
+        encodes each Block as one NDJSON line.
+        """
+        from app.services.llm.streaming import stream_gemini_tokens
+        from graphrag.config.settings import settings as cfg
+        from graphrag.domain.messages import canned_blocks_for, is_terminal_turn
+        from graphrag.llm.gemini_client import DEFAULT_MODEL
+        from graphrag.processors.entity_processor import EntityProcessor
+        from graphrag.validators.answer_validator import aiter_blocks, render_blocks_text
+
+        emitted: list["Block"] = []
+        try:
+            bundle = await load_session(self._c.session_manager, session_id)
+            session = bundle.session
+            wm = bundle.working_memory
+            memory_query_text = build_retrieval_query(query, wm)
+            analyzer_input = memory_query_text if (wm.turn_count or wm.has_summary) else query
+
+            trivial_skip = is_trivial_input(query) and wm.turn_count > 0
+            if trivial_skip:
+                analysis: dict[str, Any] = {}
+            else:
+                analysis = await self._c.analyzer.aanalyze(analyzer_input)
+
+            # Canned short-circuit — refuse / emergency. NDJSON blocks, no LLM.
+            final_action = (analysis or {}).get("final_action")
+            if analysis and "error" not in analysis and final_action in {"refuse", "emergency_redirect"}:
+                for block in canned_blocks_for(final_action):
+                    emitted.append(block)
+                    yield block
+                await save_after_turn(
+                    self._c.session_manager,
+                    session=session,
+                    user_query=query,
+                    assistant_answer=render_blocks_text(emitted),
+                    analysis=analysis,
+                    query_type="emergency" if final_action == "emergency_redirect" else "unknown",
+                )
+                return
+
+            terminal = is_terminal_turn(turn_count=wm.turn_count, analysis=analysis)
+            needs_followup = bool((analysis or {}).get("needs_followup"))
+            allow_followups = needs_followup and not terminal
+
+            rewritten = (analysis or {}).get("rewritten_query")
+            active_query = (
+                rewritten.strip() if rewritten and rewritten.strip() and rewritten != query else query
+            )
+
+            routing_mode, query_type = decide_routing(analysis=analysis, wm=wm, raw_query=query)
+            route_cfg = get_config(query_type)
+            intent_str = (analysis or {}).get("intent") or "unknown"
+            vector_top_k, reranker_top_k, graph_hops = _route_budget(routing_mode, route_cfg)
+
+            retrieval_query_text = build_retrieval_query(active_query, wm)
+            if vector_top_k > 0:
+                matches = await asyncio.to_thread(
+                    self._c.vector_retriever.retrieve,
+                    retrieval_query_text, vector_top_k, reranker_top_k,
+                )
+            else:
+                matches = []
+
+            processor = EntityProcessor()
+            vector_context_str, extracted_entities, _ = processor.process_matches(
+                matches,
+                priority_entity_types=route_cfg.priority_entity_types,
+                boost_drug_pairs=route_cfg.boost_drug_pairs,
+                query=retrieval_query_text,
+            )
+
+            if graph_hops > 0 and extracted_entities:
+                graph_lines = await asyncio.to_thread(
+                    self._c.kg_retriever.retrieve_relations, extracted_entities, graph_hops, 20,
+                )
+                graph_context_str = (
+                    "\n".join(f"- {g}" for g in graph_lines)
+                    if graph_lines else "No relevant relations found."
+                )
+            else:
+                graph_context_str = ""
+
+            episodic_context_str = ""
+            if user_id and self._c.episodic is not None:
+                episodic_context_str = await self._load_episodic_context(
+                    user_id=user_id, query_text=retrieval_query_text
+                )
+
+            memory_payload = assemble_memory_payload(
+                wm=wm,
+                user_query=query,
+                query_type=intent_str,
+                goal=route_cfg.goal,
+                vector_context=vector_context_str,
+                graph_context=graph_context_str,
+            )
+            combined_memory = memory_payload.memory_context
+            if episodic_context_str:
+                combined_memory = episodic_context_str.strip() + "\n\n" + combined_memory
+
+            system_prompt, user_prompt = _compose_answer_prompts(
+                query=query,
+                memory_context=combined_memory,
+                conversation_history=memory_payload.conversation_context,
+                vector_context=vector_context_str,
+                graph_context=graph_context_str,
+                query_type=intent_str,
+                risk_level=str((analysis or {}).get("risk_level") or "none"),
+                terminal=terminal,
+                allow_followups=allow_followups,
+                output_format="blocks",
+            )
+
+            token_stream = stream_gemini_tokens(
+                model=cfg.ANSWER_MODEL or DEFAULT_MODEL,
+                system_instruction=system_prompt,
+                user_prompt=user_prompt,
+                temperature=0.2,
+            )
+            async for block in aiter_blocks(token_stream, terminal=terminal):
+                emitted.append(block)
+                yield block
+
+            if user_id and self._c.episodic is not None:
+                asyncio.create_task(self._ingest_episodic_safe(user_id=user_id, utterance=query))
+
+            await save_after_turn(
+                self._c.session_manager,
+                session=session,
+                user_query=query,
+                assistant_answer=render_blocks_text(emitted),
+                analysis=analysis or {},
+                query_type=query_type.value,
+            )
+
+        except Exception as exc:
+            logger.exception("Block stream pipeline failed: %s", exc)
+            # Surface a minimal block so the client isn't left hanging mid-stream.
+            from graphrag.schemas.blocks import SummaryBlock, SummaryData
+
+            yield SummaryBlock(
+                type="summary",
+                data=SummaryData(
+                    text="Sorry — something went wrong while generating the answer. "
+                    "Please try again."
+                ),
+            )
+
+    # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
 
@@ -570,6 +738,9 @@ def _compose_answer_prompts(
     graph_context: str,
     query_type: str,
     risk_level: str = "none",
+    terminal: bool = False,
+    allow_followups: bool = True,
+    output_format: str = "prose",
 ) -> tuple[str, str]:
     """
     Compose the (system, user) prompt pair for the answer LLM.
@@ -578,7 +749,8 @@ def _compose_answer_prompts(
     [app.services.orchestration.prompt_layers]; CLI and FastAPI now share
     this single source of truth. The `has_name` flag is inferred from the
     rendered memory block — `_state_lines` writes a `Patient name:` line
-    when `state.demographics["name"]` is populated.
+    when `state.demographics["name"]` is populated. `output_format` selects
+    prose (default — /chat + /chat/stream) vs NDJSON blocks (/chat/blocks).
     """
     from app.services.orchestration.prompt_layers import compose_system_prompt
 
@@ -587,6 +759,9 @@ def _compose_answer_prompts(
         query_type=query_type,
         risk_level=risk_level,
         has_name=has_name,
+        terminal=terminal,
+        allow_followups=allow_followups,
+        output_format=output_format,
     )
 
     user_prompt = f"""

@@ -77,6 +77,65 @@ USER QUESTION: {query_text}
 
         return self._stream(system_instruction=system_prompt, user_prompt=user_prompt)
 
+    def generate_blocks(
+        self,
+        query_text: str,
+        vector_context: str,
+        graph_context: str,
+        memory_context: str = "",
+        conversation_history: str = "",
+        query_type: str = "unknown",
+        goal: str = "provide a medical answer",
+        risk_level: str = "none",
+        terminal: bool = False,
+        allow_followups: bool = True,
+    ):
+        """
+        Streaming Gemini answer as validated UI blocks (NDJSON STAGE-4 path).
+
+        Same prompt assembly + single-source-of-truth system prompt as
+        ``generate_response``, but the raw token stream is fed through the
+        per-line block validator (partial recovery): returns an iterator of
+        validated ``Block`` objects, yielded as each line completes. A bad line
+        is dropped without failing the stream; on a terminal turn any
+        ``follow_up_questions`` block is dropped.
+        """
+        from app.services.orchestration.prompt_layers import compose_system_prompt
+        from graphrag.validators.answer_validator import iter_blocks
+
+        has_name = "Patient name:" in memory_context
+        system_prompt = compose_system_prompt(
+            query_type=query_type,
+            risk_level=risk_level,
+            has_name=has_name,
+            terminal=terminal,
+            allow_followups=allow_followups,
+            output_format="blocks",
+        )
+
+        user_prompt = f"""
+USER QUESTION: {query_text}
+
+=== STRUCTURED CLINICAL MEMORY ===
+{memory_context}
+
+=== RECENT CONVERSATION ===
+{conversation_history}
+
+=== RETRIEVED MEDICAL CONTEXT ===
+{vector_context}
+
+=== GRAPH RELATIONS ===
+{graph_context}
+"""
+
+        token_stream = generate_stream(
+            model=self._model,
+            system_instruction=system_prompt,
+            user_prompt=user_prompt,
+        )
+        return iter_blocks(token_stream, terminal=terminal)
+
     def _stream(self, *, system_instruction: str | None, user_prompt: str) -> str | None:
         try:
             t_start = time.monotonic()

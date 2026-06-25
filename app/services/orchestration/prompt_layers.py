@@ -188,7 +188,63 @@ def layer_tool_instructions(tools: list | None = None) -> str:
 # Layer 7 — Response format + escalation policy
 # ---------------------------------------------------------------------------
 
+# Per-intent block plans. Each names the target BLOCK TYPES to emit (in render
+# order) — formatting now lives in blocks, not prose. `{followups}` expands to a
+# follow_up_questions line only when follow-ups are allowed this turn.
+_INTENT_BLOCK_PLANS: dict[str, str] = {
+    "symptom_query": (
+        "- summary: one calm acknowledging line, then the gist.\n"
+        "- condition_list: top 2–3 probable causes. Set `likelihood` "
+        "(\"most likely\" / \"possible\" / \"less likely\") and put a one-line "
+        "plain-English MECHANISM in `description` (e.g. \"reflux — the valve "
+        "atop the stomach loosens after big or spicy meals and lets acid up\").\n"
+        "- warning: red flags that would change urgency, with a severity.\n"
+        "{followups}"
+        "- next_steps: specific actions for TODAY (dose, timing, food, posture, "
+        "fluids — never a vague \"rest and water\") plus one concrete next step "
+        "with a clear TIMEFRAME and TRIGGER."
+    ),
+    "diagnosis_query": (
+        "- summary: a direct, probabilistic answer.\n"
+        "- key_points: the few facts that actually matter.\n"
+        "{followups}"
+        "- next_steps: what to do next, concretely."
+    ),
+    "medication_query": (
+        "- summary: a direct answer.\n"
+        "- key_points: key facts (interactions, timing, what to take with what).\n"
+        "- warning: cautions / contraindications, with a severity.\n"
+        "{followups}"
+        "- next_steps: what to do, concretely."
+    ),
+    "treatment_query": (
+        "- summary: a direct answer.\n"
+        "- next_steps: the ordered steps to take (most important first).\n"
+        "- warning: cautions to keep in mind, with a severity."
+    ),
+}
+
+_DEFAULT_BLOCK_PLAN: str = (
+    "- summary: a direct, calm answer.\n"
+    "- key_points: the few facts that matter.\n"
+    "{followups}"
+    "- next_steps: one concrete next step."
+)
+
+_FOLLOWUP_LINE: str = (
+    "- follow_up_questions: at most ONE high-signal question whose answer would "
+    "materially change the differential or plan. Each question must carry its "
+    "reasoning in one clause. Omit this block entirely if nothing would change "
+    "the plan.\n"
+)
+
+
 def layer_formatting_constraints(*, query_type: str) -> str:
+    """
+    PROSE response format. Used by the non-streaming /chat and the SSE
+    /chat/stream paths, whose answers stay free-text. The NDJSON block paths
+    use ``layer_block_plan`` + ``layer_output_contract`` instead.
+    """
     classified = (query_type or "unknown").strip().lower()
     if classified not in _SUBSTANTIVE_QUERY_TYPES:
         return (
@@ -236,6 +292,92 @@ def layer_formatting_constraints(*, query_type: str) -> str:
     )
 
 
+def layer_block_plan(
+    *,
+    query_type: str,
+    risk_level: str = "none",
+    terminal: bool = False,
+    allow_followups: bool = True,
+) -> str:
+    """
+    BLOCK response plan. Names the target block types per intent (formatting
+    lives in blocks, not prose). Used only by the NDJSON /chat/blocks path and
+    its sync CLI equivalent; pairs with ``layer_output_contract``.
+    """
+    classified = (query_type or "unknown").strip().lower()
+    followups = "" if (terminal or not allow_followups) else _FOLLOWUP_LINE
+
+    # Critical risk overrides the per-intent plan with a fixed 5-part escalation
+    # structure — calm, non-diagnostic, escalate first.
+    if (risk_level or "none").lower() == "critical":
+        return (
+            "BLOCK PLAN — CRITICAL RISK. Stay calm and non-diagnostic; escalate "
+            "first. Emit, in order:\n"
+            "- warning: severity \"critical\" — seek emergency care now.\n"
+            "- summary: one plain line on why this needs urgent attention "
+            "(no firm diagnosis).\n"
+            "- condition_list: tentative possible causes; keep `likelihood` "
+            "hedged and `description` brief.\n"
+            "- next_steps: call emergency services / go to the ER now, and what "
+            "to do while waiting.\n"
+            "Do NOT emit follow_up_questions on a critical turn."
+        )
+
+    if classified == "greeting":
+        return (
+            "BLOCK PLAN — greeting. Emit exactly one `summary` block: a warm, "
+            "one-line reply. No other blocks, no interview, no doctor talk."
+        )
+
+    if classified not in _SUBSTANTIVE_QUERY_TYPES:
+        return (
+            "BLOCK PLAN — non-substantive (thanks, small-talk, quick yes/no). "
+            "Emit one `summary` block, 1–2 sentences, matching their register. "
+            "No condition_list, no warning, no follow_up_questions."
+        )
+
+    plan = _INTENT_BLOCK_PLANS.get(classified, _DEFAULT_BLOCK_PLAN).format(
+        followups=followups
+    )
+    terminal_note = (
+        "\n- This is a closing/assessment turn: do NOT emit a "
+        "follow_up_questions block."
+        if terminal
+        else ""
+    )
+    return (
+        "BLOCK PLAN — substantive clinical reply. Emit these block types in "
+        "this order (skip any that don't apply; never invent block types):\n"
+        f"{plan}"
+        f"{terminal_note}\n"
+        "Keep it concise, calm, and actionable. Escalation: reserve a "
+        "`warning` with severity \"critical\" for genuinely life-threatening "
+        "signs; never alarm over routine complaints."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Layer 8 — Output contract (NDJSON wire format) — appended LAST
+# ---------------------------------------------------------------------------
+
+def layer_output_contract() -> str:
+    from graphrag.schemas.blocks import BLOCK_TYPES
+
+    types_line = ", ".join(BLOCK_TYPES)
+    return (
+        "OUTPUT CONTRACT — emit NDJSON.\n"
+        "- Output EXACTLY one JSON block object per line, in render order.\n"
+        "- No surrounding array, no wrapping object, no commas between lines, "
+        "no blank lines, no markdown, no backticks, no prose outside the JSON.\n"
+        f"- Every line's `type` must be one of: {types_line}.\n"
+        "- Each line is: {\"type\": <type>, \"data\": {...}} with only the "
+        "fields that type defines.\n"
+        "Example (two lines):\n"
+        '{"type":"summary","data":{"text":"Night-time cough may have several causes."}}\n'
+        '{"type":"follow_up_questions","data":{"questions":["Do you experience wheezing?","Do you have heartburn?"]}}'
+    )
+
+
 # ---------------------------------------------------------------------------
 # Composer
 # ---------------------------------------------------------------------------
@@ -245,6 +387,9 @@ def compose_system_prompt(
     query_type: str,
     risk_level: str = "none",
     has_name: bool = False,
+    terminal: bool = False,
+    allow_followups: bool = True,
+    output_format: str = "prose",
     tools: list | None = None,
 ) -> str:
     """
@@ -252,18 +397,42 @@ def compose_system_prompt(
 
     Args:
         query_type: Active task classification (e.g. ``symptom_query``,
-            ``greeting``). Drives the response-format layer's branch.
+            ``greeting``). Drives the block-plan layer's branch.
         risk_level: One of ``none | low | medium | high | critical`` (from
             ``analysis.risk_level``). Surfaces a tone header at the top of
-            the runtime layer when high or critical.
+            the runtime layer when high or critical, and switches the block
+            plan to the fixed critical-escalation structure.
         has_name: ``True`` when the structured memory block contains a
             ``Patient name:`` line. Drives the personalisation layer's
             variant (greet-by-name vs no-name).
+        terminal: ``True`` on a closing/assessment turn — the model is told
+            not to emit a follow_up_questions block (and the validator drops
+            it as a backstop). Block mode only.
+        allow_followups: ``True`` only when the gatekeeper flagged
+            ``needs_followup`` and the turn is not terminal. Gates whether the
+            block plan includes a follow_up_questions line. Block mode only.
+        output_format: ``"prose"`` (default) for the free-text /chat and
+            /chat/stream paths, or ``"blocks"`` for the NDJSON /chat/blocks
+            path. Prose mode uses the response-format layer; block mode swaps
+            in the block-plan layer and appends the NDJSON OUTPUT CONTRACT last.
         tools: Reserved hook for future tool-calling. Currently unused.
 
     Returns:
         The fully assembled system prompt string with empty layers omitted.
     """
+    if output_format == "blocks":
+        format_layers = [
+            layer_block_plan(
+                query_type=query_type,
+                risk_level=risk_level,
+                terminal=terminal,
+                allow_followups=allow_followups,
+            ),
+            layer_output_contract(),  # always LAST in block mode
+        ]
+    else:
+        format_layers = [layer_formatting_constraints(query_type=query_type)]
+
     layers = [
         layer_core_identity(),
         layer_safety_policy(),
@@ -271,7 +440,7 @@ def compose_system_prompt(
         layer_session_state_instructions(),
         layer_retrieval_grounding(),
         layer_tool_instructions(tools),
-        layer_formatting_constraints(query_type=query_type),
+        *format_layers,
     ]
     return "\n\n".join(layer for layer in layers if layer)
 
@@ -285,4 +454,6 @@ __all__ = [
     "layer_retrieval_grounding",
     "layer_tool_instructions",
     "layer_formatting_constraints",
+    "layer_block_plan",
+    "layer_output_contract",
 ]

@@ -22,14 +22,17 @@ import pytest
 
 from app.services.orchestration.prompt_layers import (
     compose_system_prompt,
+    layer_block_plan,
     layer_core_identity,
     layer_formatting_constraints,
+    layer_output_contract,
     layer_retrieval_grounding,
     layer_runtime_modifiers,
     layer_safety_policy,
     layer_session_state_instructions,
     layer_tool_instructions,
 )
+from graphrag.schemas.blocks import BLOCK_TYPES
 
 
 # ---------------------------------------------------------------------------
@@ -214,7 +217,7 @@ def test_questioning_strategy_every_question_explains_why():
 
 
 # ---------------------------------------------------------------------------
-# Layer 7 — Response format + escalation policy
+# Layer 7a — PROSE response format (untouched /chat + /chat/stream paths)
 # ---------------------------------------------------------------------------
 
 
@@ -223,107 +226,119 @@ def test_questioning_strategy_every_question_explains_why():
     "medication_query", "treatment_query", "drug_interaction",
     "guideline", "lab_interpretation", "prognosis", "unknown",
 ])
-def test_format_substantive_uses_response_format(query_type: str):
+def test_prose_substantive_uses_response_format(query_type: str):
     out = layer_formatting_constraints(query_type=query_type)
     assert "RESPONSE FORMAT" in out
     assert "substantive clinical" in out.lower()
+    assert "flowing natural prose" in out.lower()
 
 
-def test_format_substantive_natural_prose_not_labelled():
-    out = layer_formatting_constraints(query_type="symptom_query").lower()
-    assert "flowing natural prose" in out
-    # No labelled headings / no A/B/C bullets in the output.
-    assert "no labelled headings" in out or "no labelled" in out
-    assert "no a/b/c" in out or "no a/b/c bullets" in out
-
-
-def test_format_substantive_ranked_differential_with_mechanism():
-    out = layer_formatting_constraints(query_type="symptom_query")
-    lo = out.lower()
-    assert "probabilistic ranked differential" in lo
-    assert "2–3 likely causes" in out
-    assert "mechanism" in lo
-    # Mechanism example — reflux + valve atop the stomach.
-    assert "reflux" in lo
-    assert "valve" in lo
-
-
-def test_format_substantive_why_this_not_that():
-    out = layer_formatting_constraints(query_type="symptom_query").lower()
-    assert "why-this-not-that" in out
-    assert "what their pattern fits and what it doesn't" in out
-
-
-def test_format_substantive_today_actions_specific():
-    out = layer_formatting_constraints(query_type="symptom_query").lower()
-    # Specific TODAY actions — not vague.
-    assert "today" in out
-    for specific in ("dose", "timing", "food", "posture", "fluids"):
-        assert specific in out
-    # The negative exemplar is named.
-    assert "rest and water" in out
-    assert "this week" in out
-
-
-def test_format_substantive_next_step_timeframe_and_trigger():
-    out = layer_formatting_constraints(query_type="symptom_query").lower()
-    assert "timeframe" in out
-    assert "trigger" in out
-    # Generic deflection is rejected.
-    assert "never a generic" in out
-    assert "see a doctor" in out  # named as the anti-pattern
-
-
-def test_format_substantive_concise_word_target():
-    out = layer_formatting_constraints(query_type="symptom_query").lower()
-    assert "concise" in out
-    assert "actionable" in out
-    assert "180 words" in out
-
-
-def test_format_substantive_includes_escalation_policy():
+def test_prose_substantive_includes_escalation_policy():
     out = layer_formatting_constraints(query_type="symptom_query")
     assert "ESCALATION POLICY" in out
-    # Emergency numbers gated to life-threatening only.
     assert "112" in out and "102" in out and "108" in out
-    # Life-threatening red flags named.
-    for red_flag in (
-        "vomiting blood",
-        "severe chest pain",
-        "can't breathe",
-        "collapse",
-        "black tarry stool",
-    ):
-        assert red_flag in out
-    # Routine GI complaints excluded from emergency-number territory.
-    assert "NEVER show emergency numbers for routine" in out
-    for routine in ("bloating", "acidity", "burping", "constipation"):
-        assert routine in out
-
-
-def test_format_substantive_escalation_skip_and_escalate():
-    out = layer_formatting_constraints(query_type="symptom_query")
     assert "SKIP the interview" in out
-    assert "escalate to emergency services" in out
-    # High-risk-but-not-emergency path: timeframe + trigger, no 112.
-    assert "high-risk-but-not-emergency" in out.lower()
-    assert "specific trigger" in out.lower()
 
 
-def test_format_non_substantive_is_short_and_strips_clinical_scaffold():
+def test_prose_does_not_leak_query_header():
+    out = layer_formatting_constraints(query_type="symptom_query")
+    # The "(query:" parenthetical that used to bleed into answers is gone.
+    assert "(query:" not in out
+    assert "Never repeat it" in out
+
+
+def test_prose_non_substantive_is_short():
     out = layer_formatting_constraints(query_type="greeting")
-    # Non-substantive — natural 1–2 sentences, no clinical scaffolding.
-    assert "RESPONSE FORMAT" in out
     assert "non-substantive" in out.lower()
     assert "1–2 sentences" in out
-    # No differential, no escalation, no doctor talk.
     assert "ESCALATION POLICY" not in out
-    assert "RANKED DIFFERENTIAL" not in out
-    assert "ranked differential" not in out.lower()
-    # No interview scaffolding.
-    assert "QUESTIONING STRATEGY" not in out
-    assert "STEP 1" not in out
-    assert "STEP 2" not in out
+
+
+# ---------------------------------------------------------------------------
+# Layer 7b — BLOCK plan (NDJSON /chat/blocks path)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("query_type", [
+    "symptom_query", "diagnosis_query", "diagnosis",
+    "medication_query", "treatment_query", "drug_interaction",
+    "guideline", "lab_interpretation", "prognosis", "unknown",
+])
+def test_block_plan_substantive(query_type: str):
+    out = layer_block_plan(query_type=query_type)
+    assert "BLOCK PLAN" in out
+    assert "substantive clinical reply" in out.lower()
+    assert "summary" in out
+    assert "next_steps" in out
+
+
+def test_block_plan_symptom_names_differential_blocks():
+    """Symptom queries map to condition_list with likelihood + mechanism."""
+    out = layer_block_plan(query_type="symptom_query")
+    lo = out.lower()
+    assert "condition_list" in out
+    assert "likelihood" in lo
+    assert "mechanism" in lo
+    assert "warning" in out          # red flags
+    assert "reflux" in lo and "valve" in lo
+
+
+def test_block_plan_followups_gated_by_allow_flag():
+    on = layer_block_plan(query_type="symptom_query", allow_followups=True)
+    assert "follow_up_questions" in on
+    off = layer_block_plan(query_type="symptom_query", allow_followups=False)
+    assert "follow_up_questions" not in off
+
+
+def test_block_plan_terminal_drops_followups_and_notes_closing_turn():
+    out = layer_block_plan(query_type="symptom_query", terminal=True, allow_followups=True)
+    assert "at most ONE high-signal" not in out
+    assert "closing/assessment turn" in out
+    assert "do not emit a follow_up_questions" in out.lower()
+
+
+def test_block_plan_critical_risk_structure():
+    out = layer_block_plan(query_type="symptom_query", risk_level="critical")
+    assert "CRITICAL RISK" in out
+    assert 'severity "critical"' in out
+    assert "summary" in out
+    assert "condition_list" in out
+    assert "next_steps" in out
+    assert "Do NOT emit follow_up_questions" in out
+
+
+def test_block_plan_greeting_single_summary():
+    out = layer_block_plan(query_type="greeting")
+    assert "BLOCK PLAN" in out and "greeting" in out.lower()
+    assert "one `summary`" in out
+    assert "condition_list" not in out
+
+
+def test_block_plan_non_substantive_single_summary():
+    out = layer_block_plan(query_type="followup_query")
+    assert "non-substantive" in out.lower()
+    assert "one `summary`" in out
+    assert "No condition_list" in out
+    assert "no follow_up_questions" in out
+
+
+# ---------------------------------------------------------------------------
+# Layer 8 — Output contract (NDJSON)
+# ---------------------------------------------------------------------------
+
+
+def test_output_contract_is_ndjson_and_lists_all_block_types():
+    out = layer_output_contract()
+    assert "OUTPUT CONTRACT" in out
+    assert "NDJSON" in out
+    # Single source of truth: every BLOCK_TYPES value is named.
+    for bt in BLOCK_TYPES:
+        assert bt in out
+    # Forbids array/wrapping/markdown and shows the two-line example.
+    lo = out.lower()
+    assert "one json block object per line" in lo
+    assert "no surrounding array" in lo or "no array" in lo
+    assert '{"type":"summary"' in out
 
 
 # ---------------------------------------------------------------------------
@@ -332,6 +347,7 @@ def test_format_non_substantive_is_short_and_strips_clinical_scaffold():
 
 
 def test_compose_joins_all_layers_for_substantive_with_name_critical():
+    # Default (prose) mode — the untouched /chat path.
     out = compose_system_prompt(
         query_type="symptom_query",
         risk_level="critical",
@@ -344,8 +360,26 @@ def test_compose_joins_all_layers_for_substantive_with_name_critical():
     assert "MEMORY & CONTEXT REUSE" in out                         # L4
     assert "CLINICAL KNOWLEDGE GROUNDING" in out                   # L5
     assert "QUESTIONING STRATEGY" in out                           # L6
-    assert "RESPONSE FORMAT" in out                                # L7
-    assert "ESCALATION POLICY" in out                              # L7
+    assert "RESPONSE FORMAT" in out and "ESCALATION POLICY" in out  # L7 prose
+    # Prose mode does NOT carry the NDJSON contract.
+    assert "OUTPUT CONTRACT" not in out
+
+
+def test_compose_prose_is_default_no_block_contract():
+    out = compose_system_prompt(query_type="symptom_query")
+    assert "RESPONSE FORMAT" in out
+    assert "OUTPUT CONTRACT" not in out
+    assert "BLOCK PLAN" not in out
+
+
+def test_compose_blocks_mode_appends_output_contract_last():
+    out = compose_system_prompt(query_type="symptom_query", output_format="blocks")
+    assert "BLOCK PLAN" in out
+    # The NDJSON contract is always the final layer in block mode.
+    assert out.index("OUTPUT CONTRACT") > out.index("BLOCK PLAN")
+    assert out.rstrip().endswith("}")  # ends on the example's closing brace
+    # Block mode replaces the prose format layer.
+    assert "RESPONSE FORMAT" not in out
 
 
 def test_compose_skips_empty_layers_for_low_risk_no_name_greeting():
@@ -360,9 +394,9 @@ def test_compose_skips_empty_layers_for_low_risk_no_name_greeting():
     # Personalisation still present but in the no-name variant.
     assert "no name is known" in out.lower()
     assert "Hey Aarav" not in out
-    # Greeting → short non-substantive response format branch.
+    # Greeting → short prose non-substantive branch (default mode).
     assert "1–2 sentences" in out
-    # Escalation policy is gated to substantive replies.
+    # No clinical escalation scaffolding for a greeting.
     assert "ESCALATION POLICY" not in out
 
 
@@ -384,7 +418,7 @@ def test_compose_no_blank_line_runs():
 
 
 def test_compose_defaults_safe():
-    # No kwargs other than query_type — defaults risk=none, has_name=False.
+    # No kwargs other than query_type — defaults risk=none, has_name=False, prose.
     out = compose_system_prompt(query_type="symptom_query")
     assert "experienced gastroenterology clinician" in out
     assert "RESPONSE FORMAT" in out
@@ -401,11 +435,9 @@ def test_compose_defaults_safe():
 def test_compose_typical_path_fits_token_budget():
     """
     The composed prompt for the substantive-no-name-no-risk path should fit
-    within roughly 1150 tokens (~4600 chars, conservative 4-chars/token).
-    The budget was bumped from 400 → 1150 to allow proper clinical-
-    reasoning scaffolding (ranked differential, mechanism, why-this-not-
-    that, specific today-actions, timeframe+trigger, escalation policy,
-    RAG grounding, questioning strategy).
+    within roughly 1300 tokens (~5200 chars, conservative 4-chars/token).
+    The cap was raised from 4600 → 5200 when the NDJSON OUTPUT CONTRACT layer
+    (block-plan guidance + wire-format rules + worked example) was added.
     """
     out = compose_system_prompt(
         query_type="symptom_query",
@@ -413,7 +445,7 @@ def test_compose_typical_path_fits_token_budget():
         has_name=False,
     )
     chars = len(out)
-    assert chars <= 4600, (
+    assert chars <= 5200, (
         f"Composed prompt is {chars} chars (~{chars // 4} tokens); "
         f"tighten layer text or re-evaluate budget."
     )

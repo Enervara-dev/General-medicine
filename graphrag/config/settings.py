@@ -83,6 +83,13 @@ class Settings(BaseSettings):
     # Legacy — kept readable for backward compat but no longer required.
     OPEN_ROUTER_KEY: Optional[str] = None
 
+    # Diagnostic turn cap. Once a session reaches this many turns the answer is
+    # treated as "terminal": the model is told to stop asking follow-up
+    # questions and the validator drops any follow_up_questions block. (Stands
+    # in for the spec's assessment_ready/closure_directive signals, which this
+    # codebase's analyzer does not emit.)
+    MAX_DIAGNOSTIC_TURNS: int = 8
+
     # ----- Redis (session memory; optional — falls back to in-memory) -----
     REDIS_URL: str = "redis://localhost:6379/0"
     SESSION_TTL_SEC: int = 7200

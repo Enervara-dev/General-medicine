@@ -223,6 +223,68 @@ Same request body as `/chat`, but the response is `text/event-stream` (Server-Se
 
 See [SSE streaming — full protocol](#sse-streaming--full-protocol) for the wire format and a robust parser.
 
+### `POST /chat/blocks`
+
+Same request body as `/chat`, but the response is **NDJSON** (`application/x-ndjson`): a stream of typed UI blocks, **one JSON object per line**, emitted as generated. Use this when you want to render structured UI (cards, condition lists, warnings, follow-up chips) incrementally instead of free-text. `/chat` (JSON) and `/chat/stream` (SSE) are unchanged — this is an additive endpoint.
+
+Read the body stream, split on `\n`, `JSON.parse` each complete line, and render by `.type` as it arrives — no text parsing, no waiting for the full response. There is **no** `data:` prefix and **no** `[DONE]` sentinel; the stream ends when the body closes.
+
+Each line is `{"type": ..., "data": {...}}`. Block types:
+
+| `type` | `data` shape |
+|---|---|
+| `summary` | `{ text }` |
+| `key_points` | `{ points: string[] }` |
+| `bullet_list` | `{ title: string\|null, items: string[] }` |
+| `follow_up_questions` | `{ questions: string[] }` |
+| `warning` | `{ text, severity: "info"\|"caution"\|"critical" }` |
+| `next_steps` | `{ steps: string[] }` |
+| `condition_list` | `{ conditions: [{ name, likelihood: string\|null, description: string\|null }] }` |
+
+Example stream (two lines):
+
+```
+{"type":"summary","data":{"text":"Night-time cough may have several causes."}}
+{"type":"follow_up_questions","data":{"questions":["Do you experience wheezing?","Do you have heartburn?"]}}
+```
+
+Minimal browser parser:
+
+```js
+const r = await fetch("/chat/blocks", { method: "POST", headers, body: JSON.stringify({ query, session_id }) });
+const reader = r.body.getReader();
+const dec = new TextDecoder();
+let buf = "";
+for (;;) {
+  const { value, done } = await reader.read();
+  if (done) break;
+  buf += dec.decode(value, { stream: true });
+  let nl;
+  while ((nl = buf.indexOf("\n")) >= 0) {
+    const line = buf.slice(0, nl).trim();
+    buf = buf.slice(nl + 1);
+    if (line) renderBlock(JSON.parse(line));   // switch on block.type
+  }
+}
+if (buf.trim()) renderBlock(JSON.parse(buf));   // flush trailing line (no final \n)
+```
+
+Notes: malformed model lines are validated and dropped server-side, so every line you receive is a valid block. On a closing/assessment turn no `follow_up_questions` block is sent. Refuse / emergency turns still stream blocks (a `summary`, or a `warning(critical)` + `next_steps`) — never a raw string.
+
+### `POST /chat/stream/blocks`
+
+The **same typed blocks as `/chat/blocks`**, but **SSE-framed** (`text/event-stream`) for `EventSource`/proxy-friendly clients that can't easily read a raw `fetch` body. Each block is one SSE event whose `data:` payload is the identical block JSON (`{"type": ..., "data": {...}}`), terminated by a final `data: [DONE]` event. Pick this over `/chat/blocks` when you want to consume blocks with `EventSource` or behind infra that prefers SSE.
+
+```
+data: {"type":"summary","data":{"text":"Night-time cough may have several causes."}}
+
+data: {"type":"follow_up_questions","data":{"questions":["Do you experience wheezing?"]}}
+
+data: [DONE]
+```
+
+Parse exactly like the prose SSE stream below (split on `\n\n`, strip `data: `, stop on `[DONE]`), except each payload is a block object — switch on `block.type` and render. Same validation/terminal/canned guarantees as `/chat/blocks`.
+
 ### `/episodic/*`
 
 The long-term episodic memory subsystem. Mounted on the same service with the same auth and CORS. Use this if you need to read/write episodes outside of a chat turn (e.g. an "edit memory" admin UI).
