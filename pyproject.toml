@@ -25,7 +25,7 @@ dependencies = [
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
     # Document ingestion
-    "PyMuPDF>=1.23.0",
+    "pymupdf>=1.23.0",
     "openpyxl>=3.1.0",
     "pandas>=2.0.0",
     "tqdm>=4.66.0",
@@ -36,6 +36,10 @@ dependencies = [
     # where corp VPN/AV intercepts TLS and presents a cert not in certifi.
     "truststore>=0.10.0",
     "python-multipart>=0.0.9",
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+    "httpx>=0.27.0",
+    "structlog>=24.0.0",
 ]
 
 [project.optional-dependencies]
