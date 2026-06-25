@@ -99,11 +99,17 @@ class Settings(BaseSettings):
     # Legacy — kept readable for backward compat but no longer required.
     OPEN_ROUTER_KEY: Optional[str] = None
 
-    # Diagnostic turn cap. Once a session reaches this many turns the answer is
-    # treated as "terminal": the model is told to stop asking follow-up
-    # questions and the validator drops any follow_up_questions block. (Stands
-    # in for the spec's assessment_ready/closure_directive signals, which this
-    # codebase's analyzer does not emit.)
+    # Confidence-based stopping. The gatekeeper estimates a 0–100 confidence in
+    # the leading diagnosis each turn (``diagnostic_confidence``). Once it reaches
+    # this threshold the turn is treated as "terminal": the model stops asking
+    # follow-up questions, delivers its assessment, and the validator drops any
+    # follow_up_questions block. This replaces the old fixed-turn questioning
+    # pattern as the PRIMARY stop signal.
+    DIAGNOSTIC_CONFIDENCE_THRESHOLD: int = 80
+
+    # Diagnostic turn cap. A hard backstop so a low-confidence conversation can't
+    # interview forever: once a session reaches this many turns the answer is
+    # forced "terminal" even if confidence never crossed the threshold.
     MAX_DIAGNOSTIC_TURNS: int = 8
 
     # ----- Redis (session memory; optional — falls back to in-memory) -----

@@ -4,6 +4,7 @@ from graphrag.domain.messages import (
     emergency_blocks,
     is_terminal_turn,
     out_of_scope_blocks,
+    parse_diagnostic_confidence,
     refusal_blocks,
 )
 
@@ -11,5 +12,6 @@ __all__ = [
     "emergency_blocks",
     "is_terminal_turn",
     "out_of_scope_blocks",
+    "parse_diagnostic_confidence",
     "refusal_blocks",
 ]

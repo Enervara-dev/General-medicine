@@ -152,6 +152,9 @@ def test_terminal_helper_and_render():
     assert is_terminal_turn(turn_count=99, analysis={}) is True
     assert is_terminal_turn(turn_count=0, analysis={"final_action": "emergency_redirect"}) is True
     assert is_terminal_turn(turn_count=0, analysis={"final_action": "retrieve"}) is False
+    # Confidence-based stopping: high confidence closes early even at turn 0.
+    assert is_terminal_turn(turn_count=0, analysis={"diagnostic_confidence": 85}) is True
+    assert is_terminal_turn(turn_count=0, analysis={"diagnostic_confidence": 40}) is False
 
     blocks = list(iter_blocks(iter(_GOOD_TOKENS), terminal=False))
     text = render_blocks_text(blocks)
