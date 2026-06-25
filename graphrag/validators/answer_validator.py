@@ -35,6 +35,17 @@ logger = logging.getLogger(__name__)
 _TERMINAL_DROP_TYPE = "follow_up_questions"
 
 
+def _validate_object(obj: object) -> Block | None:
+    """Validate a parsed JSON object against the block schema."""
+    try:
+        return BlockAdapter.validate_python(obj)
+    except ValidationError as exc:
+        # Compact the pydantic error so logs stay one-line-ish.
+        reasons = "; ".join(e.get("msg", "?") for e in exc.errors())
+        logger.warning("answer block dropped — schema violation (%s): %r", reasons, repr(obj)[:200])
+        return None
+
+
 def validate_line(line: str) -> Block | None:
     """
     Parse and validate ONE NDJSON line as a single Block.
@@ -52,13 +63,27 @@ def validate_line(line: str) -> Block | None:
         logger.warning("answer block dropped — invalid JSON (%s): %r", exc, stripped[:200])
         return None
 
-    try:
-        return BlockAdapter.validate_python(obj)
-    except ValidationError as exc:
-        # Compact the pydantic error so logs stay one-line-ish.
-        reasons = "; ".join(e.get("msg", "?") for e in exc.errors())
-        logger.warning("answer block dropped — schema violation (%s): %r", reasons, stripped[:200])
-        return None
+    return _validate_object(obj)
+
+
+def _extract_complete_objects(buffer: str) -> tuple[list[object], str]:
+    """Extract any complete JSON objects from the buffer, preserving a trailing partial fragment."""
+    decoder = json.JSONDecoder()
+    objects: list[object] = []
+    remainder = buffer
+
+    while True:
+        stripped = remainder.lstrip()
+        if not stripped:
+            return objects, ""
+
+        try:
+            obj, end = decoder.raw_decode(stripped)
+        except json.JSONDecodeError:
+            return objects, stripped
+
+        objects.append(obj)
+        remainder = stripped[end:]
 
 
 def _keep(block: Block | None, *, terminal: bool) -> Block | None:
@@ -80,12 +105,15 @@ def iter_blocks(token_stream: Iterable[str], *, terminal: bool) -> Iterator[Bloc
         if not token:
             continue
         buffer += token
-        while "\n" in buffer:
-            line, buffer = buffer.split("\n", 1)
-            kept = _keep(validate_line(line), terminal=terminal)
-            if kept is not None:
-                yield kept
-    # Flush trailing line (model may omit the final newline).
+        objects, remainder = _extract_complete_objects(buffer)
+        if objects:
+            for obj in objects:
+                kept = _keep(_validate_object(obj), terminal=terminal)
+                if kept is not None:
+                    yield kept
+            buffer = remainder
+
+    # Flush trailing content if it forms a complete object; otherwise drop it.
     kept = _keep(validate_line(buffer), terminal=terminal)
     if kept is not None:
         yield kept
@@ -100,11 +128,14 @@ async def aiter_blocks(token_stream: AsyncIterator[str], *, terminal: bool) -> A
         if not token:
             continue
         buffer += token
-        while "\n" in buffer:
-            line, buffer = buffer.split("\n", 1)
-            kept = _keep(validate_line(line), terminal=terminal)
-            if kept is not None:
-                yield kept
+        objects, remainder = _extract_complete_objects(buffer)
+        if objects:
+            for obj in objects:
+                kept = _keep(_validate_object(obj), terminal=terminal)
+                if kept is not None:
+                    yield kept
+            buffer = remainder
+
     kept = _keep(validate_line(buffer), terminal=terminal)
     if kept is not None:
         yield kept
