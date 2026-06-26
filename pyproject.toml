@@ -35,6 +35,7 @@ dependencies = [
     # System trust store bridge — needed on enterprise Windows machines
     # where corp VPN/AV intercepts TLS and presents a cert not in certifi.
     "truststore>=0.10.0",
+    "python-multipart>=0.0.9",
 ]
 
 [project.optional-dependencies]
