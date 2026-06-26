@@ -18,6 +18,7 @@ If you're reading this from a frontend repo: everything you need is here. The ba
    - [`GET /metrics`](#get-metrics)
    - [`POST /chat`](#post-chat)
    - [`POST /chat/stream`](#post-chatstream)
+   - [`POST /chat/image`](#post-chatimage)
    - [`/episodic/*`](#episodic)
 6. [Error envelope](#error-envelope)
 7. [Session and user_id semantics](#session-and-user_id-semantics)
@@ -285,6 +286,75 @@ data: [DONE]
 
 Parse exactly like the prose SSE stream below (split on `\n\n`, strip `data: `, stop on `[DONE]`), except each payload is a block object — switch on `block.type` and render. Same validation/terminal/canned guarantees as `/chat/blocks`.
 
+### `POST /chat/image`
+
+Upload an image **with** an optional question and get a normal chat answer back, plus metadata about the upload. Unlike every other chat endpoint this one is **`multipart/form-data`**, not JSON — so the browser sets the `Content-Type` boundary for you (don't set it by hand).
+
+Use it for: a patient photographing a rash/wound, or a photo/scan of a lab or radiology report. The backend decides what the image *is* and handles it accordingly (see "how routing works" below).
+
+**Request — `multipart/form-data`**
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `image` | file | ✅ | `image/png` or `image/jpeg`. Max 10 MB. Content is sniffed — a `.png` that isn't really a PNG is rejected. |
+| `query` | text | optional | The question about the image. If omitted, the backend uses a sensible default ("What can you tell me about it?" / "Please review this document"). |
+| `session_id` | text | optional | Same semantics as `/chat`. Auto-uuid if omitted; returned in the response. |
+| `user_id` | text | optional | Same semantics as `/chat`. Enables long-term episodic memory. |
+
+How text + image travel together: the `query` text and the `image` bytes are sent in the **same multipart request**. Server-side they're folded into **one** pipeline turn — the image (for photos) and the question reach the model together, so the answer is about *both*. You do **not** call `/chat` separately; this endpoint replaces it for the turn that carries an image.
+
+**How routing works (why you don't need to tell us the image type)**
+
+The backend classifies the upload first, then routes:
+
+- **Clinical or general photo** → sent to the multimodal model alongside your question. The answer reasons over the actual pixels.
+- **Lab report / radiology report / prescription / other document** → sent through **document extraction** (structured text/values are pulled out), *not* visual interpretation. The answer is grounded on the extracted findings.
+
+You get the decision back in `media.category` and `media.route` so the UI can label it ("📷 Photo" vs "📄 Lab report"). Raw image bytes are **never** stored in memory — only metadata (type, caption, extracted findings, a storage URI).
+
+**Response (200)** — a normal `ChatResponse` plus a `media` object:
+
+```jsonc
+{
+  "answer": "Thanks for the photo — the area on your forearm looks like…",
+  "session_id": "patient-42-session",
+  "request_id": "01J0X7…",
+  "routing": { "mode": "HYBRID_RAG", "intent": "symptom_query", "query_type": "symptom_query", "vector_top_k": 15, "graph_hops": 1 },
+  "timing_ms": { "total": 4120 },
+  "followup_questions": ["How long has the rash been there?"],
+  "media": {
+    "category": "clinical_photo",        // clinical_photo | general_photo | lab_report | radiology_report | document | other_medical_document | unknown
+    "route": "multimodal_llm",           // multimodal_llm | document_extraction
+    "mime_type": "image/png",
+    "size_bytes": 482113,
+    "filename": "rash.png",
+    "storage_uri": "file:///srv/uploads/3f9a….png",   // reference only; not a public URL
+    "caption": "Red, raised patch on the left forearm…",  // photo: a description; document: a one-line summary
+    "extracted_facts": []                // document route: ["Hemoglobin 9.1 g/dL (low)", …]; photo route: []
+  }
+}
+```
+
+**Errors:** `400 INVALID_INPUT` for a bad upload (wrong MIME, > 10 MB, empty, or content that doesn't match the declared type). `503` if image upload is disabled on the backend (`MEDIA_UPLOAD_ENABLED=false`).
+
+**Browser example**
+
+```ts
+const fd = new FormData();
+fd.append("image", fileInput.files[0]);        // a File from <input type="file">
+fd.append("query", "is this rash something to worry about?");
+fd.append("session_id", sessionId);
+
+const r = await fetch(`${BASE}/chat/image`, {
+  method: "POST",
+  headers: { ...(apiKey && { "X-API-Key": apiKey }) },  // do NOT set Content-Type — the browser adds the boundary
+  body: fd,
+});
+const res = await r.json();   // { answer, media, … }
+```
+
+> This is a **non-streaming** endpoint — you get the full answer once the pipeline (classification + extraction + answer) completes, typically 3–7 s. The streaming endpoints (`/chat/stream`, `/chat/blocks`) are text-only today and do not accept images.
+
 ### `/episodic/*`
 
 The long-term episodic memory subsystem. Mounted on the same service with the same auth and CORS. Use this if you need to read/write episodes outside of a chat turn (e.g. an "edit memory" admin UI).
@@ -540,6 +610,26 @@ export interface ChatResponse {
   followup_questions: string[]; // length 0 or 1
 }
 
+// POST /chat/image — multipart in (FormData), JSON out.
+export type ImageCategory =
+  | "clinical_photo" | "general_photo" | "lab_report"
+  | "radiology_report" | "document" | "other_medical_document" | "unknown";
+
+export interface MediaInfo {
+  category: ImageCategory;
+  route: "multimodal_llm" | "document_extraction";
+  mime_type: string;
+  size_bytes: number;
+  filename?: string | null;
+  storage_uri?: string | null;   // backend reference, not a public URL
+  caption?: string | null;
+  extracted_facts: string[];     // populated on the document route
+}
+
+export interface ImageChatResponse extends ChatResponse {
+  media: MediaInfo;
+}
+
 export interface ErrorResponse {
   code: "INVALID_INPUT" | "UNAUTHORIZED" | "RATE_LIMITED" | "UPSTREAM_UNAVAILABLE" | "INTERNAL_ERROR" | string;
   message: string;
@@ -613,6 +703,13 @@ curl -N -X POST https://enervera-api.onrender.com/chat/stream \
   -H "Content-Type: application/json" \
   -H "X-API-Key: $ENERVERA_API_KEY" \
   -d '{"query":"What is hypertension?","session_id":"demo-1"}'
+
+# Image upload (multipart — let curl set the Content-Type/boundary via -F)
+curl -X POST https://enervera-api.onrender.com/chat/image \
+  -H "X-API-Key: $ENERVERA_API_KEY" \
+  -F "image=@rash.png;type=image/png" \
+  -F "query=is this rash serious?" \
+  -F "session_id=demo-1"
 
 # Episodic context
 curl -X POST https://enervera-api.onrender.com/episodic/context \

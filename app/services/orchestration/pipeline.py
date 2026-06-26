@@ -42,6 +42,7 @@ from graphrag.query_understanding import (
 
 if TYPE_CHECKING:
     from app.container import AppContainer
+    from app.services.media.types import MediaAttachment
     from graphrag.schemas.blocks import Block
 
 logger = logging.getLogger(__name__)
@@ -73,7 +74,16 @@ class AsyncOrchestrator:
         session_id: str,
         user_id: str | None,
         request_id: str,
+        media: "MediaAttachment | None" = None,
     ) -> ChatResult:
+        """
+        Run one full pipeline turn.
+
+        ``media`` (optional) folds an uploaded image into the turn: its raw parts
+        are sent to the answer LLM (photo route only), its extracted text is
+        injected as answer context, and a metadata-only note is recorded in
+        memory. When ``media`` is None this is the unchanged text-only flow.
+        """
         timing: dict[str, int] = {}
         t0 = time.monotonic()
 
@@ -201,6 +211,8 @@ class AsyncOrchestrator:
                 query_type=intent_str,
                 goal=cfg.goal,
                 risk_level=str((analysis or {}).get("risk_level") or "none"),
+                media_context=media.context_text if media else "",
+                media=media.parts if media else None,
             )
 
         if followup_questions and answer:
@@ -211,16 +223,20 @@ class AsyncOrchestrator:
             )
             answer = answer + followup_block
 
+        # Memory records the upload as a metadata-only note (caption/findings/
+        # type), NEVER the raw bytes — see app/services/media.
+        stored_query = f"{query}\n\n{media.memory_note}" if media else query
+
         # Stage 5: Episodic ingest (fire-and-forget; never blocks response)
         if user_id and self._c.episodic is not None:
-            asyncio.create_task(self._ingest_episodic_safe(user_id=user_id, utterance=query))
+            asyncio.create_task(self._ingest_episodic_safe(user_id=user_id, utterance=stored_query))
 
         # Stage 5b: Session save
         with _Stage("session_save", timing):
             await save_after_turn(
                 self._c.session_manager,
                 session=session,
-                user_query=query,
+                user_query=stored_query,
                 assistant_answer=answer or "",
                 analysis=analysis or {},
                 query_type=query_type.value,
@@ -631,10 +647,13 @@ class AsyncOrchestrator:
         query_type: str,
         goal: str,
         risk_level: str = "none",
+        media_context: str = "",
+        media: "list | None" = None,
     ) -> str:
         """
         Non-streaming Gemini answer. Reuses GeminiLLM's prompt assembly but
-        bypasses the sync stdout-printing path.
+        bypasses the sync stdout-printing path. When ``media`` parts are given
+        the answer call is multimodal; ``media_context`` adds extracted text.
         """
         from graphrag.llm.gemini_client import DEFAULT_MODEL, generate_text_async
         from graphrag.config.settings import settings as cfg
@@ -647,14 +666,17 @@ class AsyncOrchestrator:
             graph_context=graph_context,
             query_type=query_type,
             risk_level=risk_level,
+            media_context=media_context,
         )
-        model = cfg.ANSWER_MODEL or DEFAULT_MODEL
+        # Vision-capable model when an image is attached; text model otherwise.
+        model = (cfg.VISION_MODEL if media else cfg.ANSWER_MODEL) or DEFAULT_MODEL
         try:
             return await generate_text_async(
                 user_prompt,
                 model=model,
                 system_instruction=system_prompt,
                 temperature=0.2,
+                media=media or None,
             )
         except Exception as exc:
             logger.exception("LLM answer failed: %s", exc)
@@ -741,6 +763,7 @@ def _compose_answer_prompts(
     terminal: bool = False,
     allow_followups: bool = True,
     output_format: str = "prose",
+    media_context: str = "",
 ) -> tuple[str, str]:
     """
     Compose the (system, user) prompt pair for the answer LLM.
@@ -751,6 +774,8 @@ def _compose_answer_prompts(
     rendered memory block — `_state_lines` writes a `Patient name:` line
     when `state.demographics["name"]` is populated. `output_format` selects
     prose (default — /chat + /chat/stream) vs NDJSON blocks (/chat/blocks).
+    ``media_context`` (optional) carries a caption / extracted document text for
+    an uploaded image and is injected as its own block when present.
     """
     from app.services.orchestration.prompt_layers import compose_system_prompt
 
@@ -764,9 +789,11 @@ def _compose_answer_prompts(
         output_format=output_format,
     )
 
+    media_block = f"\n=== UPLOADED FILE ===\n{media_context}\n" if media_context else ""
+
     user_prompt = f"""
 USER QUESTION: {query}
-
+{media_block}
 === STRUCTURED CLINICAL MEMORY ===
 {memory_context}
 

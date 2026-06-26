@@ -80,6 +80,22 @@ class Settings(BaseSettings):
     QUERY_ANALYZER_MODEL: str = "gemini-2.5-flash-lite"
     SUMMARIZATION_MODEL: str = "gemini-2.5-flash-lite"
 
+    # ----- Media / image upload (multimodal input) -----
+    # Master switch for the /chat/image endpoint. When false the route returns
+    # 503 so the text-only service is unaffected.
+    MEDIA_UPLOAD_ENABLED: bool = True
+    # Hard ceiling on a single uploaded file (bytes). Default 10 MB.
+    MEDIA_MAX_UPLOAD_BYTES: int = 10 * 1024 * 1024
+    # Comma-separated allow-list of accepted MIME types. PNG + JPEG to start;
+    # add "application/pdf" etc. here as processors gain support.
+    MEDIA_ALLOWED_MIME_TYPES: str = "image/png,image/jpeg"
+    # Where uploaded bytes are persisted by the default LocalMediaStorage.
+    # Swap the storage backend (S3/GCS) without touching this path.
+    MEDIA_STORAGE_DIR: str = "data/uploads"
+    # Multimodal-capable model for image classification + understanding.
+    # Defaults to the fuller flash model for stronger vision; override per env.
+    VISION_MODEL: str = "gemini-2.5-flash"
+
     # Legacy — kept readable for backward compat but no longer required.
     OPEN_ROUTER_KEY: Optional[str] = None
 
