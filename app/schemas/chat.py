@@ -32,3 +32,22 @@ class ChatStreamEvent(BaseModel):
     data: str | None = None
     timing_ms: dict[str, int] | None = None
     error: dict[str, str] | None = None
+
+
+class MediaInfo(BaseModel):
+    """Metadata-only view of a processed upload (never carries raw bytes)."""
+
+    category: str
+    route: str
+    mime_type: str
+    size_bytes: int
+    filename: str | None = None
+    storage_uri: str | None = None
+    caption: str | None = None
+    extracted_facts: list[str] = Field(default_factory=list)
+
+
+class ImageChatResponse(ChatResponse):
+    """A `/chat/image` answer: a normal chat response plus the upload metadata."""
+
+    media: MediaInfo

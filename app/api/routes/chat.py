@@ -14,15 +14,30 @@ import logging
 import uuid
 from typing import AsyncIterator
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import ContainerDep
-from app.schemas.chat import ChatRequest, ChatResponse
+from app.schemas.chat import ChatRequest, ChatResponse, ImageChatResponse, MediaInfo
+from app.services.media import MediaArtifact, MediaValidationError
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["chat"])
+
+
+def _media_info(artifact: MediaArtifact) -> MediaInfo:
+    """Project the internal artifact onto the public, bytes-free response shape."""
+    return MediaInfo(
+        category=artifact.category.value,
+        route=artifact.route.value,
+        mime_type=artifact.mime_type,
+        size_bytes=artifact.size_bytes,
+        filename=artifact.filename,
+        storage_uri=artifact.storage_uri,
+        caption=artifact.caption,
+        extracted_facts=artifact.extracted_facts,
+    )
 
 
 @router.post("/chat", response_model=ChatResponse, response_model_exclude_none=True)
@@ -50,6 +65,68 @@ async def chat(req: ChatRequest, request: Request, ctx: ContainerDep) -> ChatRes
         timing_ms=result.timing_ms,
         routing=result.routing,
         followup_questions=result.followup_questions,
+    )
+
+
+@router.post(
+    "/chat/image",
+    response_model=ImageChatResponse,
+    response_model_exclude_none=True,
+)
+async def chat_image(
+    request: Request,
+    ctx: ContainerDep,
+    image: UploadFile = File(..., description="image/png or image/jpeg"),
+    query: str | None = Form(default=None),
+    session_id: str | None = Form(default=None),
+    user_id: str | None = Form(default=None),
+) -> ImageChatResponse:
+    """
+    Upload an image alongside an optional question (multipart/form-data).
+
+    The media pipeline validates, classifies, and routes the upload: clinical/
+    general photos go to the multimodal LLM; lab/radiology/other reports are sent
+    through document extraction (no visual interpretation). The result is folded
+    into a normal pipeline turn — same session memory, retrieval, and answer
+    path as `/chat`. Only metadata (type, caption, extracted facts, storage URI)
+    is persisted; raw bytes never enter memory.
+    """
+    if not ctx.settings.MEDIA_UPLOAD_ENABLED:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Image upload is disabled.",
+        )
+
+    request_id = _request_id(request)
+    data = await image.read()
+
+    try:
+        media_result = await ctx.media_pipeline.process(
+            data=data,
+            mime_type=image.content_type,
+            filename=image.filename,
+            query=query,
+        )
+    except MediaValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
+
+    sid = session_id or uuid.uuid4().hex
+    result = await ctx.orchestrator.run(
+        query=media_result.effective_query,
+        session_id=sid,
+        user_id=user_id,
+        request_id=request_id,
+        media=media_result.attachment,
+    )
+    return ImageChatResponse(
+        answer=result.answer,
+        session_id=result.session_id,
+        request_id=result.request_id,
+        analysis=result.analysis if ctx.settings.EXPOSE_DIAGNOSTICS else None,
+        timing_ms=result.timing_ms,
+        routing=result.routing,
+        followup_questions=result.followup_questions,
+        media=_media_info(media_result.attachment.artifact),
     )
 
 

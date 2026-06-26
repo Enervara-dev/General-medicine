@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from app.services.media import MediaPipeline
     from app.services.orchestration.pipeline import AsyncOrchestrator
     from episodic.api.dependencies import EpisodicContainer
     from graphrag.config.settings import Settings
@@ -44,6 +45,7 @@ class AppContainer:
     llm: "GeminiLLM"
     analyzer: "MedicalQueryAnalyzer"
     episodic: "EpisodicContainer | None"
+    media_pipeline: "MediaPipeline"
     orchestrator: "AsyncOrchestrator"
 
     async def aclose(self) -> None:
@@ -84,6 +86,7 @@ async def build_container() -> AppContainer:
     so the first request doesn't pay the cold-start cost.
     """
     from app.core.config import settings
+    from app.services.media import MediaPipeline
     from app.services.orchestration.pipeline import AsyncOrchestrator
     from graphrag.llm.gemini_llm import GeminiLLM
     from graphrag.query_understanding.analyzer import MedicalQueryAnalyzer
@@ -119,6 +122,7 @@ async def build_container() -> AppContainer:
         llm=llm,
         analyzer=analyzer,
         episodic=episodic,
+        media_pipeline=MediaPipeline.from_settings(settings),
         orchestrator=None,  # type: ignore[arg-type]  # filled below
     )
     container.orchestrator = AsyncOrchestrator(container)
