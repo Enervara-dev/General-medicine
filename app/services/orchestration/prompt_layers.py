@@ -190,13 +190,13 @@ def layer_retrieval_grounding() -> str:
 # ---------------------------------------------------------------------------
 
 def layer_tool_instructions(tools: list | None = None) -> str:
+    # Format-AGNOSTIC questioning strategy. Shared by the prose and block paths,
+    # so it must not mention JSON/blocks — those wire-format rules live in
+    # layer_block_plan / layer_output_contract (block mode only).
     return (
         "QUESTIONING STRATEGY — conversational and high-signal only.\n"
-        "- Keep empathy inside the JSON fields only.\n"
-        "- Do not emit plain text, prose, markdown, or commentary outside the "
-        "JSON blocks.\n"
-        "- Build the picture progressively; do not jump to a long condition list "
-        "early.\n"
+        "- Build the picture progressively; do not jump to a long list of "
+        "possible causes early.\n"
         "- Ask at most one follow-up question per turn; choose the highest-value "
         "question.\n"
         "- Track confidence for the leading diagnosis and reassess it after each "
