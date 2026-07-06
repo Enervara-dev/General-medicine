@@ -220,20 +220,38 @@ def test_consultation_flow_value_every_turn_and_info_gain():
 
 def test_consultation_flow_educational_answers_first():
     lo = layer_tool_instructions().lower()
-    # Educational/explanatory intents answer directly, not history-taking (issue 5).
+    # Educational/explanatory intents answer fully first, not history-taking (issue 5).
     assert "educational" in lo
-    assert "answer directly first" in lo or "answer directly" in lo
+    assert "answer first" in lo or "fully answer" in lo
+    # Follow-ups on educational only if they change the recommendation / user asks.
+    assert "change the recommendation" in lo or "personalised advice" in lo
 
 
 def test_summary_synthesises_not_restates_last_message():
     # Obs 4/10: the summary must synthesise accumulated findings + working
-    # assessment, not paraphrase the patient's latest message.
+    # assessment, not paraphrase the patient's latest message. The block plan
+    # names it explicitly; the shared consultation-flow layer enforces it for
+    # both prose and block modes (so the composed prompt always carries it).
     block = layer_block_plan(query_type="symptom_query").lower()
     assert "working assessment" in block
     assert "not a restatement" in block
-    prose = layer_formatting_constraints(query_type="symptom_query").lower()
-    assert "working assessment" in prose
-    assert "restatement" in prose
+    composed = compose_system_prompt(query_type="symptom_query").lower()
+    assert "working assessment" in composed
+    assert "restate" in composed
+
+
+def test_completion_closes_gracefully_without_appending_followup():
+    # Obs 6: recognise the natural stopping point; don't tack on a follow-up.
+    lo = layer_tool_instructions().lower()
+    assert "natural end" in lo or "stopping point" in lo
+    assert "do not append another follow-up" in lo
+    assert "invite" in lo
+
+
+def test_working_assessment_explains_why_leading_beats_alternatives():
+    # Obs 7: brief reasoning why the leading cause beats the alternatives.
+    lo = layer_tool_instructions().lower()
+    assert "discriminating feature" in lo or "beats the alternatives" in lo or "fits better" in lo
 
 
 def test_questioning_strategy_hard_caps():
