@@ -470,8 +470,9 @@ def test_compose_typical_path_fits_token_budget():
     The composed prompt for the substantive-no-name-no-risk path should fit
     within roughly 1300 tokens (~5200 chars, conservative 4-chars/token).
     The cap was raised 4600 → 5200 when the NDJSON OUTPUT CONTRACT layer was
-    added, then 5200 → 5500 when the identity broadened from a single specialty
-    to a general-medicine physician with an explicit body-system scope.
+    added, then → 5700 as the prompt broadened from a single specialty to a
+    general-medicine physician (explicit body-system scope + multi-system
+    escalation red flags).
     """
     out = compose_system_prompt(
         query_type="symptom_query",
@@ -479,7 +480,7 @@ def test_compose_typical_path_fits_token_budget():
         has_name=False,
     )
     chars = len(out)
-    assert chars <= 5500, (
+    assert chars <= 5700, (
         f"Composed prompt is {chars} chars (~{chars // 4} tokens); "
         f"tighten layer text or re-evaluate budget."
     )
