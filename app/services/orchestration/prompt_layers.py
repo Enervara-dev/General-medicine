@@ -46,12 +46,29 @@ _RISK_TONE: dict[str, str] = {
 }
 
 
-# Query types that warrant the full clinician response format. Anything
-# else gets the short non-substantive treatment.
+# Query types that warrant the full clinician response format. Anything else
+# gets the short non-substantive treatment.
+#
+# The gatekeeper analyzer (graphrag/query_understanding/analyzer.py) emits the
+# `intent` string that is passed straight through as `query_type`, so this set
+# MUST track that vocabulary — any clinical intent missing here silently falls
+# to the 1–2 sentence "non-substantive" reply. `greeting`/`emergency` are
+# handled elsewhere (greeting branch; emergency is short-circuited to a canned
+# response upstream), so their absence here is intentional.
 _SUBSTANTIVE_QUERY_TYPES: frozenset[str] = frozenset({
-    "symptom_query", "diagnosis_query", "diagnosis",
-    "medication_query", "treatment_query", "drug_interaction",
-    "guideline", "lab_interpretation", "prognosis", "unknown",
+    # symptom / diagnostic / risk
+    "symptom_query", "diagnosis_query", "risk_assessment",
+    # medication / treatment
+    "medication_query", "treatment_query",
+    # education / interpretation / decision support
+    "condition_explanation", "lab_interpretation", "prognosis_query",
+    "prevention_query", "lifestyle_query", "procedure_query", "comparison_query",
+    # conversational continuation of any clinical thread
+    "followup_query",
+    # medical-but-unclassified (off-topic/harmful is refused upstream)
+    "unknown",
+    # legacy QueryType enum values — harmless aliases for any non-analyzer caller
+    "diagnosis", "drug_interaction", "guideline", "prognosis",
 })
 
 
@@ -232,6 +249,54 @@ _INTENT_BLOCK_PLANS: dict[str, str] = {
         "- summary: a direct answer.\n"
         "- next_steps: the ordered steps to take (most important first).\n"
         "- warning: cautions to keep in mind, with a severity."
+    ),
+    "condition_explanation": (
+        "- summary: a plain-English explanation of what the condition is.\n"
+        "- key_points: what causes it, how it usually progresses, and what "
+        "matters most for this person.\n"
+        "{followups}"
+        "- next_steps: how it's managed and what to watch for."
+    ),
+    "lab_interpretation": (
+        "- summary: what the results most likely indicate, probabilistically.\n"
+        "- key_points: the specific values that matter and what each means.\n"
+        "- warning: any value needing prompt attention, with a severity.\n"
+        "{followups}"
+        "- next_steps: what to do about the results, concretely."
+    ),
+    "prognosis_query": (
+        "- summary: a direct, probabilistic outlook.\n"
+        "- key_points: what drives the course for this person.\n"
+        "{followups}"
+        "- next_steps: what improves the outlook and what to monitor."
+    ),
+    "prevention_query": (
+        "- summary: a direct answer on what reduces the risk.\n"
+        "- next_steps: the specific, ordered actions that help most.\n"
+        "- warning: any caveat worth knowing, with a severity."
+    ),
+    "lifestyle_query": (
+        "- summary: a direct, practical answer.\n"
+        "- next_steps: concrete diet / activity / habit steps — specific, not vague.\n"
+        "- warning: anything to avoid, with a severity."
+    ),
+    "procedure_query": (
+        "- summary: what the procedure involves, plainly.\n"
+        "- key_points: preparation, what happens, recovery, and common risks.\n"
+        "{followups}"
+        "- next_steps: how to prepare and what to ask their clinician."
+    ),
+    "comparison_query": (
+        "- summary: a direct comparison with a clear bottom line.\n"
+        "- key_points: the few differences that actually decide it.\n"
+        "{followups}"
+        "- next_steps: which to consider given their situation, concretely."
+    ),
+    "risk_assessment": (
+        "- summary: a direct, probabilistic read on their risk.\n"
+        "- key_points: the risk factors that matter for them.\n"
+        "{followups}"
+        "- next_steps: what lowers the risk, concretely."
     ),
 }
 

@@ -21,6 +21,7 @@ from __future__ import annotations
 import pytest
 
 from app.services.orchestration.prompt_layers import (
+    _INTENT_BLOCK_PLANS,
     compose_system_prompt,
     layer_block_plan,
     layer_core_identity,
@@ -224,16 +225,36 @@ def test_questioning_strategy_every_question_explains_why():
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("query_type", [
-    "symptom_query", "diagnosis_query", "diagnosis",
-    "medication_query", "treatment_query", "drug_interaction",
-    "guideline", "lab_interpretation", "prognosis", "unknown",
-])
+# Every clinical intent the gatekeeper analyzer can emit — the prompt must treat
+# all of them as substantive (regression against the taxonomy-mismatch bug where
+# educational/decision intents fell through to the 1–2 sentence branch).
+ANALYZER_SUBSTANTIVE_INTENTS = [
+    "symptom_query", "diagnosis_query", "medication_query", "treatment_query",
+    "condition_explanation", "lab_interpretation", "prognosis_query",
+    "prevention_query", "lifestyle_query", "procedure_query",
+    "comparison_query", "risk_assessment", "followup_query", "unknown",
+]
+
+
+@pytest.mark.parametrize("query_type", ANALYZER_SUBSTANTIVE_INTENTS)
 def test_prose_substantive_uses_response_format(query_type: str):
     out = layer_formatting_constraints(query_type=query_type)
     assert "RESPONSE FORMAT" in out
     assert "substantive clinical" in out.lower()
     assert "flowing natural prose" in out.lower()
+    # Must NOT be the short brush-off branch.
+    assert "1–2 sentences" not in out
+
+
+@pytest.mark.parametrize("query_type", [
+    "condition_explanation", "prognosis_query", "prevention_query",
+    "lifestyle_query", "procedure_query", "comparison_query", "risk_assessment",
+])
+def test_educational_intents_get_dedicated_block_plans(query_type: str):
+    # These used to fall to the generic default plan (or worse, non-substantive).
+    out = layer_block_plan(query_type=query_type)
+    assert "substantive clinical reply" in out.lower()
+    assert query_type in _INTENT_BLOCK_PLANS
 
 
 def test_prose_substantive_includes_escalation_policy():
@@ -319,7 +340,9 @@ def test_block_plan_greeting_single_summary():
 
 
 def test_block_plan_non_substantive_single_summary():
-    out = layer_block_plan(query_type="followup_query")
+    # `followup_query` is now substantive (a real question deserves a real
+    # answer); the non-substantive fallback covers unmapped/meta tokens.
+    out = layer_block_plan(query_type="smalltalk")
     assert "non-substantive" in out.lower()
     assert "one `summary`" in out
     assert "No condition_list" in out
