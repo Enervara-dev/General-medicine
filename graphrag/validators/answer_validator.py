@@ -180,12 +180,20 @@ def _extract_complete_objects(buffer: str) -> tuple[list[object], str]:
 
 
 def _keep(block: Block | None, *, terminal: bool) -> Block | None:
-    """Apply the terminal follow-up-questions drop rule to a validated block."""
+    """
+    Apply the follow-up-question rules to a validated block:
+    - drop a ``follow_up_questions`` block entirely on a terminal turn, and
+    - cap it to ONE question otherwise (project contract: ≤1 question/turn),
+      matching the prose path's cap so the model can't over-ask via the block.
+    """
     if block is None:
         return None
-    if terminal and block.type == _TERMINAL_DROP_TYPE:
-        logger.info("answer block dropped — follow_up_questions on terminal turn")
-        return None
+    if block.type == _TERMINAL_DROP_TYPE:
+        if terminal:
+            logger.info("answer block dropped — follow_up_questions on terminal turn")
+            return None
+        if len(block.data.questions) > 1:
+            block.data.questions = block.data.questions[:1]
     return block
 
 

@@ -86,6 +86,14 @@ def test_all_malformed_stream_yields_fallback_summary():
     assert "couldn't" in blocks[0].data.text.lower()
 
 
+def test_followup_block_capped_to_one_question():
+    # Contract: at most one question per turn. A block with several is truncated.
+    tokens = iter(['{"type":"follow_up_questions","data":{"questions":["q1","q2","q3"]}}\n'])
+    blocks = list(iter_blocks(tokens, terminal=False))
+    assert [b.type for b in blocks] == ["follow_up_questions"]
+    assert blocks[0].data.questions == ["q1"]
+
+
 def test_stream_with_one_valid_block_has_no_fallback():
     tokens = iter(['garbage\n', '{"type":"summary","data":{"text":"ok"}}\n'])
     blocks = list(iter_blocks(tokens, terminal=False))
