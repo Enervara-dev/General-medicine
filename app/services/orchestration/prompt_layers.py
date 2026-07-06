@@ -241,7 +241,10 @@ def layer_tool_instructions(tools: list | None = None) -> str:
 # follow_up_questions line only when follow-ups are allowed this turn.
 _INTENT_BLOCK_PLANS: dict[str, str] = {
     "symptom_query": (
-        "- summary: keep the text warm and reassuring within the JSON field.\n"
+        "- summary: a warm, plain line that states your current WORKING "
+        "ASSESSMENT — synthesised from everything gathered so far and noting how "
+        "the latest answer changed it — NOT a restatement of the patient's last "
+        "message.\n"
         "- Only emit condition_list when there is enough information for a short, "
         "cautious differential; otherwise keep the turn conversational and defer "
         "the list.\n"
@@ -319,7 +322,8 @@ _INTENT_BLOCK_PLANS: dict[str, str] = {
 }
 
 _DEFAULT_BLOCK_PLAN: str = (
-    "- summary: a direct, calm answer.\n"
+    "- summary: a direct, calm answer that reflects the full picture so far, "
+    "not just the latest message.\n"
     "- key_points: the few facts that matter.\n"
     "{followups}"
     "- next_steps: one concrete next step."
@@ -356,7 +360,9 @@ def layer_formatting_constraints(*, query_type: str) -> str:
         f"reply.\n"
         f"- This header is an internal instruction. Never repeat it, the "
         f"query type, or any \"query:\" annotation in your reply.\n"
-        f"- Open with one calm acknowledging line so they feel heard.\n"
+        f"- Open with one calm acknowledging line, then your working "
+        f"assessment — what you now think and how the latest detail changed "
+        f"it — not a restatement of their message.\n"
         f"- Then deliver the analysis as flowing natural prose — no "
         f"labelled headings, no A/B/C bullets in the output — covering, "
         f"in order: a probabilistic ranked differential (top 2–3 "

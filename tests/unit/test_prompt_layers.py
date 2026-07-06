@@ -225,6 +225,17 @@ def test_consultation_flow_educational_answers_first():
     assert "answer directly first" in lo or "answer directly" in lo
 
 
+def test_summary_synthesises_not_restates_last_message():
+    # Obs 4/10: the summary must synthesise accumulated findings + working
+    # assessment, not paraphrase the patient's latest message.
+    block = layer_block_plan(query_type="symptom_query").lower()
+    assert "working assessment" in block
+    assert "not a restatement" in block
+    prose = layer_formatting_constraints(query_type="symptom_query").lower()
+    assert "working assessment" in prose
+    assert "restatement" in prose
+
+
 def test_questioning_strategy_hard_caps():
     out = layer_tool_instructions().lower()
     # Hard cap: 1 per turn.
