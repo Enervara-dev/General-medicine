@@ -440,25 +440,33 @@ def layer_block_plan(
     plan = _INTENT_BLOCK_PLANS.get(classified, _DEFAULT_BLOCK_PLAN).format(
         followups=followups
     )
-    terminal_note = (
-        "\n- This is a closing/assessment turn: do NOT emit a "
-        "follow_up_questions block."
-        if terminal
-        else ""
-    )
+    # Forbid follow-ups whenever they aren't explicitly requested this turn —
+    # closing turns AND turns where the gatekeeper didn't flag one. Without this,
+    # the model volunteers a follow_up_questions block even when unwanted.
+    if terminal or not allow_followups:
+        reason = (
+            "this is a closing/assessment turn"
+            if terminal
+            else "no further question is warranted"
+        )
+        no_followup_note = f"\n- Do NOT emit a follow_up_questions block — {reason}."
+    else:
+        no_followup_note = ""
     return (
         "BLOCK PLAN — substantive clinical reply. Emit these block types in "
         "this order (skip any that don't apply; never invent block types):\n"
         f"{plan}"
-        f"{terminal_note}\n"
-        "Keep the interaction conversational inside the structured fields: use "
-        "empathy in the summary/next_steps text, ask one high-value question at "
-        "a time, and avoid long condition lists early. If the leading diagnosis "
-        "has high confidence, stop questioning and provide the assessment. Only "
-        "emit a `condition_list` when the evidence is strong enough to support "
-        "a cautious differential. Escalation: reserve a "
-        "`warning` with severity \"critical\" for genuinely life-threatening "
-        "signs; never alarm over routine complaints."
+        f"{no_followup_note}\n"
+        "Lead with VALUE: state your working assessment (the leading cause and "
+        "why it beats the alternatives) and give concrete advice — never a "
+        "filler or question-only turn. Put questions ONLY in a "
+        "follow_up_questions block; never phrase a question inside summary, "
+        "key_points, or next_steps (those are statements and actions). Keep "
+        "empathy in the field text. Once your confidence in the leading "
+        "diagnosis is high, stop asking and deliver the assessment. Only emit a "
+        "`condition_list` when the evidence supports a cautious differential. "
+        "Reserve a `warning` with severity \"critical\" for genuinely "
+        "life-threatening signs; never alarm over routine complaints."
     )
 
 

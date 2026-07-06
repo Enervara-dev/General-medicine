@@ -77,6 +77,18 @@ def _repair_obj(obj: object) -> dict | None:
     if allowed is None or not isinstance(data, dict):
         return None
 
+    # Remap a common field-name confusion: a single-string payload given under
+    # the wrong key. e.g. key_points/{text} -> key_points/{points:[text]}.
+    if btype in ("key_points", "next_steps", "follow_up_questions") and isinstance(data.get("text"), str):
+        target = {"key_points": "points", "next_steps": "steps", "follow_up_questions": "questions"}[btype]
+        if not data.get(target):
+            data = {**data, target: [data["text"]]}
+    if btype == "summary" and not data.get("text"):
+        for alt in ("points", "steps", "questions"):
+            if isinstance(data.get(alt), list) and data[alt]:
+                data = {**data, "text": " ".join(str(x) for x in data[alt])}
+                break
+
     clean = {k: v for k, v in data.items() if k in allowed}  # strip extra keys
 
     if btype == "warning":

@@ -364,9 +364,18 @@ def test_block_plan_symptom_leads_with_empathy_and_confidence_stopping():
 
 def test_block_plan_followups_gated_by_allow_flag():
     on = layer_block_plan(query_type="symptom_query", allow_followups=True)
-    assert "follow_up_questions" in on
+    assert "at most ONE high-signal" in on  # follow-up requested
     off = layer_block_plan(query_type="symptom_query", allow_followups=False)
-    assert "follow_up_questions" not in off
+    assert "at most ONE high-signal" not in off  # not requested
+    # ...and explicitly forbidden, so the model won't volunteer one.
+    assert "do not emit a follow_up_questions" in off.lower()
+
+
+def test_block_plan_forbids_questions_outside_followup_block():
+    # Live runs showed the model smuggling questions into next_steps; forbid it.
+    lo = layer_block_plan(query_type="symptom_query").lower()
+    assert "questions only in a follow_up_questions block" in lo
+    assert "never a filler or question-only turn" in lo
 
 
 def test_block_plan_terminal_drops_followups_and_notes_closing_turn():

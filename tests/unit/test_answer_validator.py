@@ -55,6 +55,13 @@ def test_repair_prunes_non_string_list_items():
     assert block.data.steps == ["do this", "and that"]
 
 
+def test_repair_remaps_single_string_under_wrong_key():
+    # Observed live: key_points emitted with `text` instead of `points`.
+    block = _validate_object({"type": "key_points", "data": {"text": "one important point"}})
+    assert block is not None
+    assert block.data.points == ["one important point"]
+
+
 def test_unrepairable_block_still_dropped():
     # Empty text can't be fabricated — stays dropped, never repaired into junk.
     assert _validate_object({"type": "summary", "data": {"text": ""}}) is None
