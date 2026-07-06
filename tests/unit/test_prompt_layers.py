@@ -43,7 +43,11 @@ from graphrag.schemas.blocks import BLOCK_TYPES
 def test_core_identity_experienced_clinician_persona():
     out = layer_core_identity()
     lo = out.lower()
-    assert "experienced gastroenterology clinician" in lo
+    # General-medicine physician, NOT a single specialty.
+    assert "general" in lo and ("physician" in lo or "medicine" in lo)
+    assert "gastroenterology clinician" not in lo
+    # Breadth across body systems (not GI-locked).
+    assert "respiratory" in lo or "cardiac" in lo or "neurological" in lo
     assert "thoughtful" in lo or "doctor in clinic" in lo
     # Probabilistic clinical reasoning chain is the ethos.
     assert "probabilistic" in lo
@@ -360,7 +364,7 @@ def test_compose_joins_all_layers_for_substantive_with_name_critical():
         has_name=True,
     )
     # Markers from every non-empty layer must appear in the composed prompt.
-    assert "experienced gastroenterology clinician" in out         # L1
+    assert "experienced physician practising general" in out       # L1
     assert "SAFETY & EVIDENCE" in out                              # L2
     assert "⚠️ CRITICAL" in out and "Hey Aarav" in out             # L3
     assert "MEMORY & CONTEXT REUSE" in out                         # L4
@@ -426,7 +430,7 @@ def test_compose_no_blank_line_runs():
 def test_compose_defaults_safe():
     # No kwargs other than query_type — defaults risk=none, has_name=False, prose.
     out = compose_system_prompt(query_type="symptom_query")
-    assert "experienced gastroenterology clinician" in out
+    assert "experienced physician practising general" in out
     assert "RESPONSE FORMAT" in out
     assert "⚠️" not in out
     assert "Hey Aarav" not in out
@@ -442,8 +446,9 @@ def test_compose_typical_path_fits_token_budget():
     """
     The composed prompt for the substantive-no-name-no-risk path should fit
     within roughly 1300 tokens (~5200 chars, conservative 4-chars/token).
-    The cap was raised from 4600 → 5200 when the NDJSON OUTPUT CONTRACT layer
-    (block-plan guidance + wire-format rules + worked example) was added.
+    The cap was raised 4600 → 5200 when the NDJSON OUTPUT CONTRACT layer was
+    added, then 5200 → 5500 when the identity broadened from a single specialty
+    to a general-medicine physician with an explicit body-system scope.
     """
     out = compose_system_prompt(
         query_type="symptom_query",
@@ -451,7 +456,7 @@ def test_compose_typical_path_fits_token_budget():
         has_name=False,
     )
     chars = len(out)
-    assert chars <= 5200, (
+    assert chars <= 5500, (
         f"Composed prompt is {chars} chars (~{chars // 4} tokens); "
         f"tighten layer text or re-evaluate budget."
     )
