@@ -106,7 +106,7 @@ class AsyncOrchestrator:
 
         # Short-circuit: refuse / emergency_redirect
         final_action = (analysis or {}).get("final_action")
-        if analysis and "error" not in analysis and final_action in {"refuse", "emergency_redirect"}:
+        if analysis and "error" not in analysis and final_action in {"refuse", "emergency_redirect", "mental_health_crisis"}:
             msg = _canned_message(final_action)
             await save_after_turn(
                 self._c.session_manager,
@@ -114,7 +114,7 @@ class AsyncOrchestrator:
                 user_query=query,
                 assistant_answer=msg,
                 analysis=analysis,
-                query_type="emergency" if final_action == "emergency_redirect" else "unknown",
+                query_type="emergency" if final_action in {"emergency_redirect", "mental_health_crisis"} else "unknown",
             )
             timing["total"] = int((time.monotonic() - t0) * 1000)
             return ChatResult(
@@ -311,7 +311,7 @@ class AsyncOrchestrator:
                     analysis = await self._c.analyzer.aanalyze(analyzer_input)
 
             final_action = (analysis or {}).get("final_action")
-            if analysis and "error" not in analysis and final_action in {"refuse", "emergency_redirect"}:
+            if analysis and "error" not in analysis and final_action in {"refuse", "emergency_redirect", "mental_health_crisis"}:
                 msg = _canned_message(final_action)
                 await save_after_turn(
                     self._c.session_manager,
@@ -319,7 +319,7 @@ class AsyncOrchestrator:
                     user_query=query,
                     assistant_answer=msg,
                     analysis=analysis,
-                    query_type="emergency" if final_action == "emergency_redirect" else "unknown",
+                    query_type="emergency" if final_action in {"emergency_redirect", "mental_health_crisis"} else "unknown",
                 )
                 yield {"type": "chunk", "data": msg}
                 timing["total"] = int((time.monotonic() - t0) * 1000)
@@ -510,7 +510,7 @@ class AsyncOrchestrator:
 
             # Canned short-circuit — refuse / emergency. NDJSON blocks, no LLM.
             final_action = (analysis or {}).get("final_action")
-            if analysis and "error" not in analysis and final_action in {"refuse", "emergency_redirect"}:
+            if analysis and "error" not in analysis and final_action in {"refuse", "emergency_redirect", "mental_health_crisis"}:
                 for block in canned_blocks_for(final_action):
                     emitted.append(block)
                     yield block
@@ -520,7 +520,7 @@ class AsyncOrchestrator:
                     user_query=query,
                     assistant_answer=render_blocks_text(emitted),
                     analysis=analysis,
-                    query_type="emergency" if final_action == "emergency_redirect" else "unknown",
+                    query_type="emergency" if final_action in {"emergency_redirect", "mental_health_crisis"} else "unknown",
                 )
                 return
 
@@ -743,6 +743,17 @@ def _canned_message(final_action: str) -> str:
         return (
             "I’m designed to assist only with healthcare-related questions. "
             "Please ask a medical or health-related question so I can help."
+        )
+    if final_action == "mental_health_crisis":
+        return (
+            "I’m really glad you told me this, and I’m sorry you’re carrying so "
+            "much right now. What you’re feeling is real and you don’t have to "
+            "face it alone. If you might act on these thoughts or feel unsafe, "
+            "please call 112 or go to the nearest emergency room now. To talk to "
+            "someone right away, India’s free 24/7 Tele-MANAS line is 14416 "
+            "(or 1-800-891-4416), and KIRAN is 1800-599-0019; outside India, "
+            "contact your local crisis line. If you can, reach out to someone "
+            "you trust and stay with them. Asking for help is a strong first step."
         )
     return (
         "🚨 Medical Emergency: Your symptoms may indicate a serious or "

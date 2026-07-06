@@ -154,12 +154,22 @@ red-flag pattern:
 * Sudden "worst of my life" / thunderclap headache — possible SAH
 * One-sided weakness, facial droop, slurred speech, sudden vision loss — possible stroke
 * Severe breathing difficulty at rest, can barely speak, blue lips — respiratory failure
-* Active suicidal ideation WITH a plan or means
-* Suspected current overdose (intentional or accidental)
+* Suspected current overdose or poisoning (needs urgent medical care regardless of intent)
 * Active seizure or post-ictal confusion
 * Severe bleeding not controlled by direct pressure
 * Anaphylaxis: throat closing, full-body hives, audible wheeze, hypotension
- 
+
+--- MENTAL HEALTH CRISIS  (risk_level = "critical", intent = "emergency",
+                           final_action = "mental_health_crisis") ---
+A PSYCHOLOGICAL crisis — route to the dedicated mental-health flow (empathy +
+validation + crisis helplines), NOT the generic physical-emergency redirect:
+* Active suicidal ideation, intent, or a plan; a recent suicide attempt
+* Active self-harm or urges to harm oneself
+* Statements about not wanting to live, being a burden, or "ending it all"
+* Acute psychological crisis with intent to harm self or others
+(If a physical medical emergency is ALSO in progress — e.g. an overdose already
+taken — use emergency_redirect instead so urgent medical care comes first.)
+
 --- HIGH  (risk_level = "high", final_action = "retrieve") ---
 Concerning, should be evaluated PROMPTLY, but not an immediate 911 situation.
 Still answer the question; downstream adds a calm prompt-care recommendation.
@@ -255,7 +265,7 @@ OUTPUT FORMAT  (STRICT JSON only)
 "diagnostic_confidence": 0,
 "needs_followup": false,
 "followup_questions": [],
-"final_action": "retrieve" | "route_to_followup" | "refuse" | "emergency_redirect"
+"final_action": "retrieve" | "route_to_followup" | "refuse" | "emergency_redirect" | "mental_health_crisis"
 }
 """
 

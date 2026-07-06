@@ -321,9 +321,10 @@ class GraphRAGPipeline:
         trivial_skip = is_trivial_input(original_query_text) and working_memory.turn_count > 0
         analysis = {} if trivial_skip else self.query_analyzer.analyze(analyzer_query_text)
 
-        # Canned short-circuit — refuse / emergency. NDJSON blocks, no LLM.
+        # Canned short-circuit — refuse / emergency / mental-health crisis. No LLM.
         final_action = (analysis or {}).get("final_action")
-        if analysis and "error" not in analysis and final_action in {"refuse", "emergency_redirect"}:
+        _crisis = {"emergency_redirect", "mental_health_crisis"}
+        if analysis and "error" not in analysis and final_action in {"refuse", *_crisis}:
             for block in canned_blocks_for(final_action):
                 emitted.append(block)
                 yield block
@@ -332,7 +333,7 @@ class GraphRAGPipeline:
                 user_query=original_query_text,
                 assistant_answer=render_blocks_text(emitted),
                 analysis=analysis,
-                query_type="emergency" if final_action == "emergency_redirect" else "unknown",
+                query_type="emergency" if final_action in _crisis else "unknown",
             )
             return
 
