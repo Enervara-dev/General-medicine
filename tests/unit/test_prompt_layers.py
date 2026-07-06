@@ -186,20 +186,43 @@ def test_retrieval_grounding_no_fabrication():
 
 
 # ---------------------------------------------------------------------------
-# Layer 6 — Questioning strategy (minimal, high-signal)
+# Layer 6 — Consultation flow + questioning strategy (converge, don't interrogate)
 # ---------------------------------------------------------------------------
 
 
-def test_questioning_strategy_minimal_high_signal():
+def test_consultation_flow_holds_and_updates_a_working_assessment():
     out = layer_tool_instructions()
     lo = out.lower()
-    assert "QUESTIONING STRATEGY" in out
-    assert "high-signal" in lo
-    # Materially-changing-the-differential threshold.
-    assert "clinically useful" in lo or "materially" in lo or "diagnosis" in lo
-    assert "diagnosis" in lo or "management" in lo
-    # Permission to defer questions or diagnosis when evidence is still limited.
-    assert "gathering information" in lo or "defer" in lo or "guessing" in lo
+    assert "consultation flow" in lo
+    # A running working assessment that visibly updates (issues 6, 10).
+    assert "working assessment" in lo
+    assert "differential" in lo
+    # Must not just restate the patient's symptoms.
+    assert "never just restate" in lo or "restate" in lo
+
+
+def test_consultation_flow_converges_and_completes():
+    lo = layer_tool_instructions().lower()
+    # Explicit convergence + completion strategy (issues 1, 7, 11).
+    assert "converge" in lo
+    assert "completion" in lo
+    assert "red flags" in lo and "monitor" in lo
+    # Stop at high confidence.
+    assert "80%" in lo or "stop asking" in lo
+
+
+def test_consultation_flow_value_every_turn_and_info_gain():
+    lo = layer_tool_instructions().lower()
+    # Never a question-only turn (issue 8); questions chosen by information gain (issue 2).
+    assert "only asks a question" in lo or "lead with value" in lo
+    assert "information-gain" in lo or "information gain" in lo
+
+
+def test_consultation_flow_educational_answers_first():
+    lo = layer_tool_instructions().lower()
+    # Educational/explanatory intents answer directly, not history-taking (issue 5).
+    assert "educational" in lo
+    assert "answer directly first" in lo or "answer directly" in lo
 
 
 def test_questioning_strategy_hard_caps():
@@ -207,11 +230,13 @@ def test_questioning_strategy_hard_caps():
     # Hard cap: 1 per turn.
     assert "one follow-up question" in out.lower() or "one question" in out.lower()
     assert "at most" in out.lower()
+    # Never re-ask answered facts (issue 3).
+    assert "never re-ask" in out.lower()
 
 
 def test_questioning_strategy_every_question_explains_why():
     out = layer_tool_instructions().lower()
-    assert "medical reasoning" in out
+    assert "clinical reasoning" in out
     # Worked example anchors the cadence.
     assert "chest pain" in out
     # Anti-padding rules.
@@ -392,7 +417,7 @@ def test_compose_joins_all_layers_for_substantive_with_name_critical():
     assert "⚠️ CRITICAL" in out and "Hey Aarav" in out             # L3
     assert "MEMORY & CONTEXT REUSE" in out                         # L4
     assert "CLINICAL KNOWLEDGE GROUNDING" in out                   # L5
-    assert "QUESTIONING STRATEGY" in out                           # L6
+    assert "CONSULTATION FLOW" in out                              # L6
     assert "RESPONSE FORMAT" in out and "ESCALATION POLICY" in out  # L7 prose
     # Prose mode does NOT carry the NDJSON contract.
     assert "OUTPUT CONTRACT" not in out
@@ -469,10 +494,11 @@ def test_compose_typical_path_fits_token_budget():
     """
     The composed prompt for the substantive-no-name-no-risk path should fit
     within roughly 1300 tokens (~5200 chars, conservative 4-chars/token).
-    The cap was raised 4600 → 5200 when the NDJSON OUTPUT CONTRACT layer was
-    added, then → 5700 as the prompt broadened from a single specialty to a
-    general-medicine physician (explicit body-system scope + multi-system
-    escalation red flags).
+    The cap was raised 4600 → 5200 (NDJSON OUTPUT CONTRACT), → 5700 (general-
+    medicine breadth + multi-system escalation), → 6800 when Layer 6 became a
+    full consultation-flow spec (working assessment, convergence/completion,
+    info-gain questioning, educational answer-first). If this keeps climbing,
+    de-duplicate Layers 6 and 7 rather than lifting the cap again.
     """
     out = compose_system_prompt(
         query_type="symptom_query",
@@ -480,7 +506,7 @@ def test_compose_typical_path_fits_token_budget():
         has_name=False,
     )
     chars = len(out)
-    assert chars <= 5700, (
+    assert chars <= 6800, (
         f"Composed prompt is {chars} chars (~{chars // 4} tokens); "
         f"tighten layer text or re-evaluate budget."
     )

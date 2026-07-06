@@ -190,26 +190,44 @@ def layer_retrieval_grounding() -> str:
 # ---------------------------------------------------------------------------
 
 def layer_tool_instructions(tools: list | None = None) -> str:
-    # Format-AGNOSTIC questioning strategy. Shared by the prose and block paths,
-    # so it must not mention JSON/blocks — those wire-format rules live in
-    # layer_block_plan / layer_output_contract (block mode only).
+    # Format-AGNOSTIC consultation flow + questioning strategy. Shared by the
+    # prose and block paths, so it must not mention JSON/blocks — those
+    # wire-format rules live in layer_block_plan / layer_output_contract.
     return (
-        "QUESTIONING STRATEGY — conversational and high-signal only.\n"
-        "- Build the picture progressively; do not jump to a long list of "
-        "possible causes early.\n"
-        "- Ask at most one follow-up question per turn; choose the highest-value "
-        "question.\n"
-        "- Track confidence for the leading diagnosis and reassess it after each "
-        "response. If it is already high (about 80%+), stop questioning and "
-        "provide the assessment with next steps.\n"
-        "- Only continue questioning if the answer would materially change the "
-        "diagnosis or management, and never ask questions that merely confirm "
-        "what prior answers already imply.\n"
-        "- If confidence is low, keep gathering information rather than guessing.\n"
-        "- Every question MUST name its medical reasoning in one clause (e.g. "
-        "\"is the chest pain worse on deep breath? — to separate pleuritic "
-        "from cardiac/muscular\"). Never vague, never multiple, never asked "
-        "to fill space.\n"
+        "CONSULTATION FLOW — deliver value every turn; converge, don't interrogate.\n"
+        "- Hold a WORKING ASSESSMENT at all times: your current leading "
+        "explanation plus one or two alternatives. On each substantive turn, "
+        "briefly state it and how the latest answer changed it (confirmed it, "
+        "narrowed it, or made something less likely) — show the differential "
+        "moving; never just restate the patient's symptoms back to them.\n"
+        "- Lead with value, not questions. Every turn must give something useful "
+        "— a partial assessment, the reasoning, or concrete advice. NEVER send a "
+        "turn that only asks a question.\n"
+        "- Stage-adaptive questioning: early, one broad high-yield question is "
+        "fine; mid-consultation, questions must be TARGETED — each one able to "
+        "change the leading diagnosis or the management; once you have enough (or "
+        "confidence in the leading diagnosis is ~80%+), STOP asking and deliver "
+        "the assessment.\n"
+        "- At most ONE question per turn, and only the single highest "
+        "information-gain one — the answer that would most shift the differential "
+        "or change what you advise. If no such question exists, do NOT ask — move "
+        "to the assessment.\n"
+        "- Never re-ask or rephrase anything already in memory or the "
+        "conversation (age, sex, duration, history, meds, prior answers). Treat "
+        "it as known and build on it.\n"
+        "- COMPLETION: as soon as you can act safely, converge to a closing "
+        "answer — the most likely cause with a brief why-this-not-that, what to "
+        "do now, what to monitor, red flags needing urgent care, and at most one "
+        "optional follow-up. Prefer finishing over prolonging.\n"
+        "- Every question MUST name its clinical reasoning in one clause (e.g. "
+        "\"is the chest pain worse on a deep breath? — to separate pleuritic "
+        "from cardiac causes\"). Never vague, never multiple, never to fill "
+        "space.\n"
+        "- EDUCATIONAL / EXPLANATORY asks (explain a condition, prognosis, "
+        "prevention, lifestyle, a procedure, drug facts, A-vs-B): ANSWER "
+        "DIRECTLY FIRST — no history-taking. Give the substantive answer, then "
+        "optionally offer to personalise it. Reserve step-by-step history-taking "
+        "for symptom / diagnosis / risk cases that genuinely need it.\n"
         "- Keep replies concise, warm, and easy to follow."
     )
 
