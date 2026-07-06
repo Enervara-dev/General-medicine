@@ -16,9 +16,11 @@ If you're reading this from a frontend repo: everything you need is here. The ba
    - [`GET /health`](#get-health)
    - [`GET /healthz/ready`](#get-healthzready)
    - [`GET /metrics`](#get-metrics)
-   - [`POST /chat`](#post-chat)
-   - [`POST /chat/stream`](#post-chatstream)
-   - [`POST /chat/image`](#post-chatimage)
+   - [`POST /chat`](#post-chat) — non-streaming JSON answer
+   - [`POST /chat/stream`](#post-chatstream) — SSE prose stream
+   - [`POST /chat/blocks`](#post-chatblocks) — NDJSON typed UI blocks
+   - [`POST /chat/stream/blocks`](#post-chatstreamblocks) — SSE typed UI blocks
+   - [`POST /chat/image`](#post-chatimage) — multipart image upload
    - [`/episodic/*`](#episodic)
 6. [Error envelope](#error-envelope)
 7. [Session and user_id semantics](#session-and-user_id-semantics)
@@ -113,7 +115,21 @@ The middleware accepts `GET`, `POST`, `OPTIONS` and the headers `Content-Type`, 
 
 ## Endpoints
 
-All bodies are JSON unless otherwise noted. Responses are JSON except `/chat/stream` (SSE).
+All bodies are JSON unless otherwise noted. Responses are JSON except the streaming ones.
+
+### Which chat endpoint should I use?
+
+There are five ways to send a chat turn. **They all share the same request fields** (`query`, `session_id?`, `user_id?`) — pick by how you want to render the answer:
+
+| Endpoint | Transport | Answer shape | Use when |
+|---|---|---|---|
+| `POST /chat` | JSON in/out | one text `answer` | simplest; you just want the final text |
+| `POST /chat/stream` | SSE | text streamed token-by-token | live "typing" UX, free-text bubble |
+| `POST /chat/blocks` | NDJSON | typed UI blocks (cards, chips, warnings) | you render structured UI and can read a `fetch` body stream |
+| `POST /chat/stream/blocks` | SSE | same typed blocks, SSE-framed | structured UI but you prefer `EventSource`/SSE infra |
+| `POST /chat/image` | multipart in, JSON out | one text `answer` + `media` metadata | the user is uploading an image/photo/report |
+
+**Recommendation for a rich chat UI:** use `/chat/blocks` (or `/chat/stream/blocks`) for text turns and `/chat/image` for uploads. Everything below documents each in detail; the **block guarantees + safety-response handling** under `/chat/blocks` are the most important part to read.
 
 ### `GET /health`
 
@@ -218,6 +234,8 @@ Field rules:
 
 The `followup_questions` array contains **at most one** item — there's a hard cap. Render it as a chip / suggested-reply button if you want; or ignore it.
 
+**Safety short-circuits (prose paths).** For a physical emergency or a mental-health crisis, `answer` is a fixed, safety-reviewed message (not a generated one) — an emergency instruction, or an empathetic mental-health message with crisis helplines (Tele-MANAS 14416, KIRAN 1800-599-0019, 112). It's still plain text, so nothing special is required, but you SHOULD linkify phone numbers (`tel:`) and present a crisis message calmly, not as an error. If you want these as structured blocks instead (to style the crisis differently), use `/chat/blocks` — see its "Special canned responses" table.
+
 ### `POST /chat/stream`
 
 Same request body as `/chat`, but the response is `text/event-stream` (Server-Sent Events). First token typically lands in **1–2 s**; total wall time is similar to `/chat`. Use this for live "typing" UX.
@@ -241,6 +259,12 @@ Each line is `{"type": ..., "data": {...}}`. Block types:
 | `warning` | `{ text, severity: "info"\|"caution"\|"critical" }` |
 | `next_steps` | `{ steps: string[] }` |
 | `condition_list` | `{ conditions: [{ name, likelihood: string\|null, description: string\|null }] }` |
+
+Field notes:
+- `warning.severity` is one of `"info" | "caution" | "critical"` — use it to pick styling (subtle / amber / prominent). No other values occur.
+- `condition_list[].likelihood`, when present, is human text like `"most likely" | "possible" | "less likely"` — render as a label/badge; it may be `null`.
+- `follow_up_questions.questions` never has more than one item (see guarantees below).
+- Blocks arrive in a sensible reading order (e.g. `summary` first, `next_steps`/`follow_up_questions` last). Render them in the order received; don't reorder by type.
 
 Example stream (two lines):
 
@@ -270,7 +294,22 @@ for (;;) {
 if (buf.trim()) renderBlock(JSON.parse(buf));   // flush trailing line (no final \n)
 ```
 
-Notes: malformed model lines are validated and dropped server-side, so every line you receive is a valid block. On a closing/assessment turn no `follow_up_questions` block is sent. Refuse / emergency turns still stream blocks (a `summary`, or a `warning(critical)` + `next_steps`) — never a raw string.
+**Guarantees you can rely on (do NOT re-implement defensively):**
+
+- **Every line is a schema-valid block.** Malformed model output is repaired or dropped server-side. You never receive a partial object, a wrong-typed field, or a raw string — just `JSON.parse` each line and switch on `.type`.
+- **You always get at least one block.** If generation fails entirely, the server emits a fallback `summary` — the stream is never empty.
+- **At most one `follow_up_questions` block per turn, with at most one question inside.** Render it as a single suggested-reply chip; you'll never get a wall of questions.
+- **On a closing/assessment turn, no `follow_up_questions` is sent** — the assistant has converged to an answer, so show the assessment/next-steps and let the user type freely.
+
+**Special "canned" responses (safety short-circuits).** Some turns bypass the model and stream a fixed, safety-reviewed block set. You detect them by block shape + `warning.severity`, and you MUST render them prominently:
+
+| Situation | Blocks (in order) | How to render |
+|---|---|---|
+| **Physical emergency** | `warning` (`severity:"critical"`) → `next_steps` | Prominent critical banner; make emergency numbers (112 / 108) tappable `tel:` links. |
+| **Mental-health crisis** (self-harm / suicidal ideation) | `summary` (empathetic) → `warning` (`severity:"critical"`) → `next_steps` (crisis helplines: Tele-MANAS **14416**, KIRAN **1800-599-0019**, plus **112**) | Render **calmly and supportively — NOT an alarming red error**. Lead with the summary, keep helpline numbers tappable. |
+| **Refusal / out-of-scope** | single `summary` | Plain message. |
+
+None of these contain `follow_up_questions`. Rule of thumb: **any `warning` with `severity:"critical"` means show it front-and-center and make the numbers in the following `next_steps` tappable.** Treat `severity` as your styling signal — `info` (subtle), `caution` (amber), `critical` (prominent).
 
 ### `POST /chat/stream/blocks`
 
