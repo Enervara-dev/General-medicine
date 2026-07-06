@@ -34,13 +34,79 @@ logger = logging.getLogger(__name__)
 
 _TERMINAL_DROP_TYPE = "follow_up_questions"
 
+# The `data` fields each block type actually defines. Anything else is a
+# hallucinated key that `extra="forbid"` would reject — we strip it instead.
+_ALLOWED_DATA_FIELDS: dict[str, set[str]] = {
+    "summary": {"text"},
+    "key_points": {"points"},
+    "bullet_list": {"title", "items"},
+    "follow_up_questions": {"questions"},
+    "warning": {"text", "severity"},
+    "next_steps": {"steps"},
+    "condition_list": {"conditions"},
+}
+
+# List-valued data fields — empty/blank entries are pruned before validation.
+_LIST_FIELDS: tuple[str, ...] = ("points", "items", "questions", "steps")
+
+# Map the severities a model commonly emits onto the three the schema allows.
+_SEVERITY_ALIASES: dict[str, str] = {
+    "info": "info", "information": "info", "informational": "info",
+    "note": "info", "low": "info", "mild": "info", "minor": "info",
+    "caution": "caution", "warning": "caution", "warn": "caution",
+    "moderate": "caution", "medium": "caution", "concern": "caution",
+    "critical": "critical", "severe": "critical", "high": "critical",
+    "danger": "critical", "emergency": "critical", "urgent": "critical",
+}
+
+
+def _repair_obj(obj: object) -> dict | None:
+    """
+    Best-effort coercion of a near-miss block dict into schema shape.
+
+    Handles the common, safe-to-fix failure modes — hallucinated extra keys, a
+    non-canonical ``severity``, and blank list entries — WITHOUT fabricating any
+    content. Returns a cleaned dict, or None if the object isn't a repairable
+    block. The caller re-validates strictly, so a bad repair is still dropped.
+    """
+    if not isinstance(obj, dict):
+        return None
+    btype = obj.get("type")
+    allowed = _ALLOWED_DATA_FIELDS.get(btype) if isinstance(btype, str) else None
+    data = obj.get("data")
+    if allowed is None or not isinstance(data, dict):
+        return None
+
+    clean = {k: v for k, v in data.items() if k in allowed}  # strip extra keys
+
+    if btype == "warning":
+        sev = str(clean.get("severity", "")).strip().lower()
+        clean["severity"] = _SEVERITY_ALIASES.get(sev, "caution")
+
+    for field in _LIST_FIELDS:
+        val = clean.get(field)
+        if isinstance(val, list):
+            clean[field] = [s for s in val if isinstance(s, str) and s.strip()]
+
+    return {"type": btype, "data": clean}
+
 
 def _validate_object(obj: object) -> Block | None:
-    """Validate a parsed JSON object against the block schema."""
+    """Validate a parsed JSON object against the block schema, repairing near-misses."""
     try:
         return BlockAdapter.validate_python(obj)
     except ValidationError as exc:
-        # Compact the pydantic error so logs stay one-line-ish.
+        repaired = _repair_obj(obj)
+        if repaired is not None and repaired != obj:
+            try:
+                block = BlockAdapter.validate_python(repaired)
+                logger.info(
+                    "answer block repaired (%s)",
+                    obj.get("type") if isinstance(obj, dict) else "?",
+                )
+                return block
+            except ValidationError:
+                pass  # repair didn't help — fall through to the drop path
         reasons = "; ".join(e.get("msg", "?") for e in exc.errors())
         logger.warning("answer block dropped — schema violation (%s): %r", reasons, repr(obj)[:200])
         return None
@@ -67,7 +133,15 @@ def validate_line(line: str) -> Block | None:
 
 
 def _extract_complete_objects(buffer: str) -> tuple[list[object], str]:
-    """Extract any complete JSON objects from the buffer, preserving a trailing partial fragment."""
+    """
+    Extract complete JSON objects from the buffer, preserving a trailing partial.
+
+    Recovers across malformed lines: if the buffer can't be decoded from the
+    current position but a newline delimits a complete (garbage) line, that line
+    is dropped and parsing continues after it — so one unparseable line never
+    swallows the valid blocks that follow. A tail with no newline is treated as
+    an incomplete object and kept for the next chunk.
+    """
     decoder = json.JSONDecoder()
     objects: list[object] = []
     remainder = buffer
@@ -80,7 +154,14 @@ def _extract_complete_objects(buffer: str) -> tuple[list[object], str]:
         try:
             obj, end = decoder.raw_decode(stripped)
         except json.JSONDecodeError:
-            return objects, stripped
+            nl = stripped.find("\n")
+            if nl == -1:
+                return objects, stripped  # incomplete tail — wait for more tokens
+            bad = stripped[:nl].strip()
+            if bad:
+                logger.warning("answer line dropped — unparseable: %r", bad[:200])
+            remainder = stripped[nl + 1:]  # skip the garbage line, keep going
+            continue
 
         objects.append(obj)
         remainder = stripped[end:]
@@ -96,11 +177,29 @@ def _keep(block: Block | None, *, terminal: bool) -> Block | None:
     return block
 
 
+# Guaranteed-renderable fallback so a stream never resolves to zero blocks (e.g.
+# the model emitted only malformed lines). Built fresh per use — Blocks are cheap.
+_FALLBACK_TEXT = (
+    "Sorry — I couldn't put together a full answer just now. Could you rephrase "
+    "that or add a little more detail?"
+)
+
+
+def _fallback_block() -> Block:
+    from graphrag.schemas.blocks import SummaryBlock, SummaryData
+
+    return SummaryBlock(type="summary", data=SummaryData(text=_FALLBACK_TEXT))
+
+
 def iter_blocks(token_stream: Iterable[str], *, terminal: bool) -> Iterator[Block]:
     """
     Sync: turn a token stream into a stream of validated Blocks (partial recovery).
+
+    Guarantees at least one valid block: if every line failed validation (even
+    after repair), a fallback summary is emitted so the client never renders nothing.
     """
     buffer = ""
+    yielded = False
     for token in token_stream:
         if not token:
             continue
@@ -110,20 +209,29 @@ def iter_blocks(token_stream: Iterable[str], *, terminal: bool) -> Iterator[Bloc
             for obj in objects:
                 kept = _keep(_validate_object(obj), terminal=terminal)
                 if kept is not None:
+                    yielded = True
                     yield kept
             buffer = remainder
 
     # Flush trailing content if it forms a complete object; otherwise drop it.
     kept = _keep(validate_line(buffer), terminal=terminal)
     if kept is not None:
+        yielded = True
         yield kept
+
+    if not yielded:
+        logger.warning("answer stream produced no valid blocks — emitting fallback summary")
+        yield _fallback_block()
 
 
 async def aiter_blocks(token_stream: AsyncIterator[str], *, terminal: bool) -> AsyncIterator[Block]:
     """
     Async: turn an async token stream into a stream of validated Blocks.
+
+    Guarantees at least one valid block (see ``iter_blocks``).
     """
     buffer = ""
+    yielded = False
     async for token in token_stream:
         if not token:
             continue
@@ -133,12 +241,18 @@ async def aiter_blocks(token_stream: AsyncIterator[str], *, terminal: bool) -> A
             for obj in objects:
                 kept = _keep(_validate_object(obj), terminal=terminal)
                 if kept is not None:
+                    yielded = True
                     yield kept
             buffer = remainder
 
     kept = _keep(validate_line(buffer), terminal=terminal)
     if kept is not None:
+        yielded = True
         yield kept
+
+    if not yielded:
+        logger.warning("answer stream produced no valid blocks — emitting fallback summary")
+        yield _fallback_block()
 
 
 def block_to_line(block: Block) -> str:

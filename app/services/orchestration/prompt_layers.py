@@ -483,6 +483,8 @@ def layer_output_contract() -> str:
         "next_steps -> {\"type\":\"next_steps\",\"data\":{\"steps\":[\"...\"]}}; "
         "condition_list -> {\"type\":\"condition_list\",\"data\":{\"conditions\":[{\"name\":\"...\",\"likelihood\":\"most likely\",\"description\":\"...\"}]}}.\n"
         "- Do not rename fields, add extra properties, or omit required fields.\n"
+        "- `warning.severity` MUST be exactly one of: info, caution, critical. "
+        "Every list field must be non-empty.\n"
         "Example (two lines):\n"
         '{"type":"summary","data":{"text":"Night-time cough may have several causes."}}\n'
         '{"type":"follow_up_questions","data":{"questions":["Do you experience wheezing?","Do you have heartburn?"]}}'

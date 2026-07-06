@@ -64,11 +64,12 @@ def test_each_line_validates_as_block():
 def test_malformed_line_dropped_neighbours_survive():
     tokens = [
         '{"type":"summary","data":{"text":"ok"}}\n',
-        'this is not json at all\n',
-        '{"type":"summary","data":{"text":"x","EXTRA":1}}\n',   # extra key -> forbidden
+        'this is not json at all\n',                            # unparseable -> dropped
+        '{"type":"summary","data":{"text":""}}\n',              # empty text -> unrepairable, dropped
         '{"type":"next_steps","data":{"steps":["go"]}}\n',
     ]
     blocks = list(iter_blocks(iter(tokens), terminal=False))
+    # Malformed lines dropped; the valid neighbours before/after still stream.
     assert [b.type for b in blocks] == ["summary", "next_steps"]
 
 
