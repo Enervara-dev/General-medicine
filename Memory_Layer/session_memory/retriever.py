@@ -72,6 +72,29 @@ class WorkingMemory:
 
 
 # ---------------------------------------------------------------------------
+# count_clinical_facts — how much has been gathered so far
+# ---------------------------------------------------------------------------
+
+# The distinct triage slot-types whose presence signals "we've gathered enough
+# to consolidate a summary" (symptom + duration + severity + medication + …).
+_FACT_SLOTS: tuple[str, ...] = (
+    "symptoms", "duration", "severity", "drugs", "conditions",
+    "chronic_conditions", "allergies",
+)
+
+
+def count_clinical_facts(state: StructuredState) -> int:
+    """
+    Count how many distinct clinical SLOT-TYPES have been filled so far.
+
+    Counts slot-types, not entries — three fevers still count as one `symptoms`
+    slot. Drives the gathering→consolidation switch: once this reaches
+    ``CONSOLIDATE_MIN_FACTS`` the assistant summarises instead of asking again.
+    """
+    return sum(1 for slot in _FACT_SLOTS if getattr(state, slot, None))
+
+
+# ---------------------------------------------------------------------------
 # get_recent_turns
 # ---------------------------------------------------------------------------
 

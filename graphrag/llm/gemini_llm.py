@@ -89,6 +89,7 @@ USER QUESTION: {query_text}
         risk_level: str = "none",
         terminal: bool = False,
         allow_followups: bool = True,
+        consolidate: bool = False,
     ):
         """
         Streaming Gemini answer as validated UI blocks (NDJSON STAGE-4 path).
@@ -110,6 +111,7 @@ USER QUESTION: {query_text}
             has_name=has_name,
             terminal=terminal,
             allow_followups=allow_followups,
+            consolidate=consolidate,
             output_format="blocks",
         )
 

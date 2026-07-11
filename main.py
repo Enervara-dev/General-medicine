@@ -90,7 +90,7 @@ def run_query(
     query_text: str | None = None,
     session_id: str = "default",
     redis_url: str | None = None,
-    show_memory: bool = True,
+    show_memory: bool = False,
     user_id: str | None = None,
 ) -> None:
     from graphrag.config.settings import ConfigError, settings
@@ -178,9 +178,10 @@ if __name__ == "__main__":
         ),
     )
     parser.add_argument(
-        "--hide-memory",
+        "--show-memory",
         action="store_true",
-        help="Do not print the clinical memory snapshot after each answer.",
+        help="Print the clinical memory snapshot after each answer (off by "
+        "default — it's a debugging view, not part of the conversation).",
     )
 
     args = parser.parse_args()
@@ -190,6 +191,6 @@ if __name__ == "__main__":
         args.query,
         session_id=active_session_id,
         redis_url=args.redis_url,
-        show_memory=not args.hide_memory,
+        show_memory=args.show_memory,
         user_id=args.user_id,
     )

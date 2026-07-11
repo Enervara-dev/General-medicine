@@ -338,8 +338,18 @@ class GraphRAGPipeline:
             return
 
         terminal = is_terminal_turn(turn_count=working_memory.turn_count, analysis=analysis)
+        # Consolidate once enough facts are gathered or the gatekeeper is confident.
+        from Memory_Layer.session_memory import count_clinical_facts
+        from graphrag.domain.messages import parse_diagnostic_confidence
+
+        _facts = count_clinical_facts(working_memory.state)
+        _conf = parse_diagnostic_confidence((analysis or {}).get("diagnostic_confidence"))
+        consolidate = _facts >= settings.CONSOLIDATE_MIN_FACTS or (
+            _conf is not None and _conf >= settings.DIAGNOSTIC_CONFIDENCE_THRESHOLD
+        )
         needs_followup = bool((analysis or {}).get("needs_followup"))
-        allow_followups = needs_followup and not terminal
+        # On a consolidate/closing turn, deliver the assessment — don't ask again.
+        allow_followups = needs_followup and not terminal and not consolidate
 
         rewritten = (analysis or {}).get("rewritten_query")
         if rewritten and rewritten.strip() and rewritten != query_text:
@@ -419,6 +429,7 @@ class GraphRAGPipeline:
             risk_level=str((analysis or {}).get("risk_level") or "none"),
             terminal=terminal,
             allow_followups=allow_followups,
+            consolidate=consolidate,
         )
         for block in block_stream:
             emitted.append(block)

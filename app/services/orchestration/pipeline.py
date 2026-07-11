@@ -525,8 +525,13 @@ class AsyncOrchestrator:
                 return
 
             terminal = is_terminal_turn(turn_count=wm.turn_count, analysis=analysis)
+            # Consolidate (summarise instead of asking again) once enough facts
+            # have accumulated or the gatekeeper is already confident.
+            consolidate = _should_consolidate(wm, analysis, self._c.settings)
             needs_followup = bool((analysis or {}).get("needs_followup"))
-            allow_followups = needs_followup and not terminal
+            # On a consolidate/closing turn, deliver the assessment — don't tack
+            # on another question.
+            allow_followups = needs_followup and not terminal and not consolidate
 
             rewritten = (analysis or {}).get("rewritten_query")
             active_query = (
@@ -594,6 +599,7 @@ class AsyncOrchestrator:
                 risk_level=str((analysis or {}).get("risk_level") or "none"),
                 terminal=terminal,
                 allow_followups=allow_followups,
+                consolidate=consolidate,
                 output_format="blocks",
             )
 
@@ -762,6 +768,24 @@ def _canned_message(final_action: str) -> str:
     )
 
 
+def _should_consolidate(wm, analysis: dict[str, Any] | None, settings) -> bool:
+    """
+    Whether this triage turn should stop gathering and consolidate a summary.
+
+    True once enough distinct clinical facts have accumulated
+    (``CONSOLIDATE_MIN_FACTS``) or the gatekeeper is already confident in the
+    leading diagnosis. Keeps summaries as checkpoints rather than per-turn noise.
+    """
+    from Memory_Layer.session_memory import count_clinical_facts
+    from graphrag.domain.messages import parse_diagnostic_confidence
+
+    facts = count_clinical_facts(wm.state)
+    if facts >= settings.CONSOLIDATE_MIN_FACTS:
+        return True
+    confidence = parse_diagnostic_confidence((analysis or {}).get("diagnostic_confidence"))
+    return confidence is not None and confidence >= settings.DIAGNOSTIC_CONFIDENCE_THRESHOLD
+
+
 def _compose_answer_prompts(
     *,
     query: str,
@@ -774,6 +798,7 @@ def _compose_answer_prompts(
     terminal: bool = False,
     allow_followups: bool = True,
     output_format: str = "prose",
+    consolidate: bool = False,
     media_context: str = "",
 ) -> tuple[str, str]:
     """
@@ -797,6 +822,7 @@ def _compose_answer_prompts(
         has_name=has_name,
         terminal=terminal,
         allow_followups=allow_followups,
+        consolidate=consolidate,
         output_format=output_format,
     )
 

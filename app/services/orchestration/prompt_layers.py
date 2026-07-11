@@ -55,6 +55,15 @@ _RISK_TONE: dict[str, str] = {
 # to the 1–2 sentence "non-substantive" reply. `greeting`/`emergency` are
 # handled elsewhere (greeting branch; emergency is short-circuited to a canned
 # response upstream), so their absence here is intentional.
+# Intents that run a step-by-step history-taking interview. On these, a turn
+# where we still need a key fact is a GATHERING turn — just the one question, no
+# per-turn summary. Educational/decision intents answer directly, so they are
+# NOT here even when a follow-up is allowed.
+_TRIAGE_INTENTS: frozenset[str] = frozenset({
+    "symptom_query", "diagnosis_query", "followup_query",
+})
+
+
 _SUBSTANTIVE_QUERY_TYPES: frozenset[str] = frozenset({
     # symptom / diagnostic / risk
     "symptom_query", "diagnosis_query", "risk_assessment",
@@ -194,17 +203,20 @@ def layer_tool_instructions(tools: list | None = None) -> str:
     # prose and block paths, so it must not mention JSON/blocks — those
     # wire-format rules live in layer_block_plan / layer_output_contract.
     return (
-        "CONSULTATION FLOW — deliver value every turn; converge, don't interrogate.\n"
-        "- Hold a WORKING ASSESSMENT at all times: your current leading "
-        "explanation plus one or two alternatives. On each substantive turn, "
-        "briefly state it and how the latest answer changed it (confirmed it, "
-        "narrowed it, or made something less likely) — show the differential "
-        "moving; never just restate the patient's symptoms back to them. When "
-        "you name a leading cause, say in one clause WHY it fits better than the "
-        "alternatives — the discriminating feature.\n"
-        "- Lead with value, not questions. Every turn must give something useful "
-        "— a partial assessment, the reasoning, or concrete advice. NEVER send a "
-        "turn that only asks a question.\n"
+        "CONSULTATION FLOW — gather efficiently, consolidate at the right moments.\n"
+        "- SUMMARIES ARE CHECKPOINTS, NOT PER-TURN NARRATION. Give a synthesised "
+        "summary ONLY when enough facts have accumulated to consolidate (e.g. "
+        "symptom + duration + severity + modifiers/meds), when you move from "
+        "gathering to assessment/diagnosis, or when a long conversation needs a "
+        "recap. Do NOT summarise a greeting, an acknowledgement, or a single-fact "
+        "answer like '5 days', '102', or 'yes' — that repetitive narration is "
+        "exactly what to avoid.\n"
+        "- Match the turn to the phase. While you still need a key fact, ONE "
+        "focused question IS the whole turn — don't pad it with a premature "
+        "summary or assessment. Hold your WORKING ASSESSMENT internally and "
+        "refine it each turn; surface it only when you consolidate, and when you "
+        "do, name the leading cause and WHY it beats the alternatives (the "
+        "discriminating feature) — never a bare restatement of their symptoms.\n"
         "- Stage-adaptive questioning: early, one broad high-yield question is "
         "fine; mid-consultation, questions must be TARGETED — each one able to "
         "change the leading diagnosis or the management; once you have enough (or "
@@ -401,11 +413,17 @@ def layer_block_plan(
     risk_level: str = "none",
     terminal: bool = False,
     allow_followups: bool = True,
+    consolidate: bool = False,
 ) -> str:
     """
     BLOCK response plan. Names the target block types per intent (formatting
     lives in blocks, not prose). Used only by the NDJSON /chat/blocks path and
     its sync CLI equivalent; pairs with ``layer_output_contract``.
+
+    ``consolidate`` — set by the caller when enough facts have accumulated (or
+    the model is confident) to move from the question-only GATHERING phase to a
+    consolidated summary/assessment. On triage intents it is the switch between
+    "just ask the next question" and "summarise + reason".
     """
     classified = (query_type or "unknown").strip().lower()
     followups = "" if (terminal or not allow_followups) else _FOLLOWUP_LINE
@@ -437,6 +455,23 @@ def layer_block_plan(
             "BLOCK PLAN — non-substantive (thanks, small-talk, quick yes/no). "
             "Emit one `summary` block, 1–2 sentences, matching their register. "
             "No condition_list, no warning, no follow_up_questions."
+        )
+
+    # GATHERING turn: still interviewing a triage case and NOT yet time to
+    # consolidate. The turn is just the one question — NO per-turn summary /
+    # narration. The summary/assessment comes once `consolidate` is set (enough
+    # facts gathered) or the turn is terminal — see the else branch.
+    if classified in _TRIAGE_INTENTS and not terminal and not consolidate:
+        return (
+            "BLOCK PLAN — INFORMATION-GATHERING turn. You do NOT yet have enough "
+            "to consolidate, and it is NOT time for a summary. Emit ONLY:\n"
+            "- follow_up_questions: exactly ONE warm, high-information-gain "
+            "question, carrying its clinical reasoning in one clause.\n"
+            "- warning: ONLY if a red flag is already present (with a severity); "
+            "otherwise omit it.\n"
+            "Do NOT emit a summary, condition_list, key_points, or next_steps this "
+            "turn — no 'Summary:' after every answer. Just ask the one question "
+            "that moves the picture forward; you will consolidate later."
         )
 
     plan = _INTENT_BLOCK_PLANS.get(classified, _DEFAULT_BLOCK_PLAN).format(
@@ -513,6 +548,7 @@ def compose_system_prompt(
     terminal: bool = False,
     allow_followups: bool = True,
     output_format: str = "prose",
+    consolidate: bool = False,
     tools: list | None = None,
 ) -> str:
     """
@@ -538,6 +574,10 @@ def compose_system_prompt(
             /chat/stream paths, or ``"blocks"`` for the NDJSON /chat/blocks
             path. Prose mode uses the response-format layer; block mode swaps
             in the block-plan layer and appends the NDJSON OUTPUT CONTRACT last.
+        consolidate: Block mode only. ``True`` when enough facts have
+            accumulated (or the model is confident) to move a triage case from
+            the question-only gathering phase to a consolidated summary. Left
+            ``False``, a triage turn stays gathering (asks, doesn't summarise).
         tools: Reserved hook for future tool-calling. Currently unused.
 
     Returns:
@@ -550,6 +590,7 @@ def compose_system_prompt(
                 risk_level=risk_level,
                 terminal=terminal,
                 allow_followups=allow_followups,
+                consolidate=consolidate,
             ),
             layer_output_contract(),  # always LAST in block mode
         ]

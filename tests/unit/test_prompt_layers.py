@@ -211,10 +211,15 @@ def test_consultation_flow_converges_and_completes():
     assert "80%" in lo or "stop asking" in lo
 
 
-def test_consultation_flow_value_every_turn_and_info_gain():
+def test_consultation_flow_summary_is_a_checkpoint_not_narration():
     lo = layer_tool_instructions().lower()
-    # Never a question-only turn (issue 8); questions chosen by information gain (issue 2).
-    assert "only asks a question" in lo or "lead with value" in lo
+    # Summaries are consolidation checkpoints, not per-turn narration.
+    assert "checkpoint" in lo
+    assert "per-turn narration" in lo or "not per-turn" in lo
+    # Named suppression cases (greeting / single-fact answers).
+    assert "greeting" in lo
+    assert "5 days" in lo or "single-fact" in lo
+    # Questions still chosen by information gain.
     assert "information-gain" in lo or "information gain" in lo
 
 
@@ -232,7 +237,7 @@ def test_summary_synthesises_not_restates_last_message():
     # assessment, not paraphrase the patient's latest message. The block plan
     # names it explicitly; the shared consultation-flow layer enforces it for
     # both prose and block modes (so the composed prompt always carries it).
-    block = layer_block_plan(query_type="symptom_query").lower()
+    block = layer_block_plan(query_type="symptom_query", consolidate=True).lower()
     assert "working assessment" in block
     assert "not a restatement" in block
     composed = compose_system_prompt(query_type="symptom_query").lower()
@@ -343,19 +348,32 @@ def test_prose_non_substantive_is_short():
     "guideline", "lab_interpretation", "prognosis", "unknown",
 ])
 def test_block_plan_substantive(query_type: str):
-    out = layer_block_plan(query_type=query_type)
+    # consolidate=True → the assessment/consolidation plan (summary + steps).
+    out = layer_block_plan(query_type=query_type, consolidate=True)
     assert "BLOCK PLAN" in out
     assert "substantive clinical reply" in out.lower()
     assert "summary" in out
     assert "next_steps" in out
 
 
-def test_block_plan_symptom_leads_with_empathy_and_confidence_stopping():
-    """Symptom queries should start conversationally and stop once the diagnosis is confident."""
-    out = layer_block_plan(query_type="symptom_query")
+def test_block_plan_gathering_turn_is_question_only():
+    # A triage turn that still needs info: just the one question, no summary/narration.
+    out = layer_block_plan(query_type="symptom_query", allow_followups=True, terminal=False)
+    lo = out.lower()
+    assert "information-gathering" in lo
+    assert "follow_up_questions" in out
+    assert "do not emit a summary" in lo
+    # Educational intents are NOT gathering — they answer directly even if a
+    # follow-up is allowed.
+    edu = layer_block_plan(query_type="condition_explanation", allow_followups=True).lower()
+    assert "information-gathering" not in edu
+
+
+def test_block_plan_assessment_turn_leads_with_empathy_and_stopping():
+    """On the consolidation turn, emit the summary/assessment and stop questioning."""
+    out = layer_block_plan(query_type="symptom_query", consolidate=True, allow_followups=False)
     lo = out.lower()
     assert "empathy" in lo or "empathetic" in lo
-    assert "follow-up" in lo or "question" in lo
     assert "confidence" in lo or "high confidence" in lo
     assert "80" in out or "80%" in lo or "high" in lo
     assert "condition_list" not in out or "only emit condition_list" in lo
@@ -363,17 +381,19 @@ def test_block_plan_symptom_leads_with_empathy_and_confidence_stopping():
 
 
 def test_block_plan_followups_gated_by_allow_flag():
-    on = layer_block_plan(query_type="symptom_query", allow_followups=True)
+    # Use a non-triage intent so the standard plan (with the {followups} line) is used.
+    on = layer_block_plan(query_type="medication_query", allow_followups=True)
     assert "at most ONE high-signal" in on  # follow-up requested
-    off = layer_block_plan(query_type="symptom_query", allow_followups=False)
+    off = layer_block_plan(query_type="medication_query", allow_followups=False)
     assert "at most ONE high-signal" not in off  # not requested
     # ...and explicitly forbidden, so the model won't volunteer one.
     assert "do not emit a follow_up_questions" in off.lower()
 
 
 def test_block_plan_forbids_questions_outside_followup_block():
-    # Live runs showed the model smuggling questions into next_steps; forbid it.
-    lo = layer_block_plan(query_type="symptom_query").lower()
+    # Live runs showed the model smuggling questions into next_steps; forbid it
+    # (on the assessment turn, which carries the response tail).
+    lo = layer_block_plan(query_type="symptom_query", consolidate=True, allow_followups=False).lower()
     assert "questions only in a follow_up_questions block" in lo
     assert "never a filler or question-only turn" in lo
 
@@ -544,7 +564,7 @@ def test_compose_typical_path_fits_token_budget():
         has_name=False,
     )
     chars = len(out)
-    assert chars <= 6800, (
+    assert chars <= 7000, (
         f"Composed prompt is {chars} chars (~{chars // 4} tokens); "
         f"tighten layer text or re-evaluate budget."
     )

@@ -43,6 +43,7 @@ from .summarizer import (
 )
 from .retriever import (
     WorkingMemory,
+    count_clinical_facts,
     format_working_memory,
     get_recent_turns,
     get_structured_state,
@@ -73,6 +74,7 @@ __all__ = [
     # Retriever
     "WorkingMemory", "get_recent_turns", "get_summary",
     "get_structured_state", "get_working_memory", "format_working_memory",
+    "count_clinical_facts",
     # Context builder
     "ContextPayload", "FinalPrompt",
     "build_memory_context", "build_conversation_context",

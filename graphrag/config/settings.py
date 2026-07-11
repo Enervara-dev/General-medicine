@@ -112,6 +112,19 @@ class Settings(BaseSettings):
     # forced "terminal" even if confidence never crossed the threshold.
     MAX_DIAGNOSTIC_TURNS: int = 8
 
+    # Consolidation trigger. During a triage interview each turn is just the next
+    # question (no per-turn summary). Once this many distinct clinical facts have
+    # accumulated (symptom / duration / severity / medication / condition), the
+    # turn "consolidates": the model emits a synthesised summary + assessment
+    # instead of another bare question. Keeps summaries as checkpoints, not
+    # turn-by-turn narration.
+    #
+    # Tuned to the CURRENT regex extractor, which under-captures (it often misses
+    # duration/severity), so 2 extracted slots ≈ "enough gathered". Raise this
+    # toward 3–4 when fact extraction improves (LLM-based memory), or the
+    # interview will consolidate a touch early.
+    CONSOLIDATE_MIN_FACTS: int = 2
+
     # ----- Redis (session memory; optional — falls back to in-memory) -----
     REDIS_URL: str = "redis://localhost:6379/0"
     SESSION_TTL_SEC: int = 7200
