@@ -8,9 +8,13 @@ only summarises once enough distinct clinical facts have accumulated
 
 from __future__ import annotations
 
-from Memory_Layer.session_memory import count_clinical_facts
-from Memory_Layer.session_memory.models import StructuredState
+from types import SimpleNamespace
 
+from Memory_Layer.session_memory import Message, Role, SessionMemory, count_clinical_facts
+from Memory_Layer.session_memory.models import StructuredState
+from graphrag.config.settings import settings
+
+from app.services.orchestration.pipeline import _should_consolidate
 from app.services.orchestration.prompt_layers import layer_block_plan
 
 
@@ -56,3 +60,28 @@ def test_educational_never_gathers_even_without_consolidate():
     lo = layer_block_plan(query_type="condition_explanation", consolidate=False).lower()
     assert "information-gathering" not in lo
     assert "summary" in lo
+
+
+# ---------------------------------------------------------------------------
+# The monotonic counter + turn backstop — guarantees the interview terminates
+# ---------------------------------------------------------------------------
+
+
+def test_total_messages_counter_survives_window_cap():
+    s = SessionMemory(session_id="t")
+    for i in range(20):
+        s.add_turn(Message(role=Role.USER, content=f"m{i}"))
+    # recent_turns is window-capped; total_messages is NOT — it's the reliable
+    # signal for how long the consultation has run.
+    assert s.total_messages == 20
+    assert len(s.recent_turns) < 20
+
+
+def test_consolidate_turn_backstop_fires_when_facts_undercount():
+    # A wound is all one 'symptoms' slot → facts stay 0, so the fact threshold
+    # never fires. The turn backstop must still force consolidation.
+    wm = SimpleNamespace(state=StructuredState())
+    assert count_clinical_facts(wm.state) == 0
+    enough = settings.CONSOLIDATE_AFTER_TURNS * 2  # completed exchanges → messages
+    assert _should_consolidate(wm, {}, settings, total_messages=enough) is True
+    assert _should_consolidate(wm, {}, settings, total_messages=0) is False

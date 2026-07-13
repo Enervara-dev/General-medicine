@@ -125,6 +125,12 @@ class Settings(BaseSettings):
     # interview will consolidate a touch early.
     CONSOLIDATE_MIN_FACTS: int = 2
 
+    # Turn-based consolidation backstop (in completed exchanges). The fact count
+    # above under-fires when everything lands in one slot (e.g. a wound = all
+    # "symptoms"), so after this many exchanges the assistant consolidates a
+    # summary regardless — it must never keep asking indefinitely.
+    CONSOLIDATE_AFTER_TURNS: int = 3
+
     # ----- Redis (session memory; optional — falls back to in-memory) -----
     REDIS_URL: str = "redis://localhost:6379/0"
     SESSION_TTL_SEC: int = 7200

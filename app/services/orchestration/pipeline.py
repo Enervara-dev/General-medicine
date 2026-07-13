@@ -524,10 +524,13 @@ class AsyncOrchestrator:
                 )
                 return
 
-            terminal = is_terminal_turn(turn_count=wm.turn_count, analysis=analysis)
+            # Use the monotonic message counter (survives the window cap) so the
+            # turn cap actually fires and the interview can terminate.
+            elapsed = session.total_messages
+            terminal = is_terminal_turn(turn_count=elapsed, analysis=analysis)
             # Consolidate (summarise instead of asking again) once enough facts
-            # have accumulated or the gatekeeper is already confident.
-            consolidate = _should_consolidate(wm, analysis, self._c.settings)
+            # have accumulated, enough exchanges have passed, or we're confident.
+            consolidate = _should_consolidate(wm, analysis, self._c.settings, total_messages=elapsed)
             needs_followup = bool((analysis or {}).get("needs_followup"))
             # On a consolidate/closing turn, deliver the assessment — don't tack
             # on another question.
@@ -768,19 +771,24 @@ def _canned_message(final_action: str) -> str:
     )
 
 
-def _should_consolidate(wm, analysis: dict[str, Any] | None, settings) -> bool:
+def _should_consolidate(
+    wm, analysis: dict[str, Any] | None, settings, total_messages: int = 0
+) -> bool:
     """
     Whether this triage turn should stop gathering and consolidate a summary.
 
     True once enough distinct clinical facts have accumulated
-    (``CONSOLIDATE_MIN_FACTS``) or the gatekeeper is already confident in the
-    leading diagnosis. Keeps summaries as checkpoints rather than per-turn noise.
+    (``CONSOLIDATE_MIN_FACTS``), the consultation has run enough exchanges
+    (``CONSOLIDATE_AFTER_TURNS`` — a backstop for cases the weak extractor
+    under-counts), or the gatekeeper is already confident. Keeps summaries as
+    checkpoints, and guarantees the interview can't collect info forever.
     """
     from Memory_Layer.session_memory import count_clinical_facts
     from graphrag.domain.messages import parse_diagnostic_confidence
 
-    facts = count_clinical_facts(wm.state)
-    if facts >= settings.CONSOLIDATE_MIN_FACTS:
+    if count_clinical_facts(wm.state) >= settings.CONSOLIDATE_MIN_FACTS:
+        return True
+    if total_messages // 2 >= settings.CONSOLIDATE_AFTER_TURNS:
         return True
     confidence = parse_diagnostic_confidence((analysis or {}).get("diagnostic_confidence"))
     return confidence is not None and confidence >= settings.DIAGNOSTIC_CONFIDENCE_THRESHOLD

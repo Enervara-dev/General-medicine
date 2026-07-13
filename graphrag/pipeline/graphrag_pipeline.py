@@ -337,15 +337,21 @@ class GraphRAGPipeline:
             )
             return
 
-        terminal = is_terminal_turn(turn_count=working_memory.turn_count, analysis=analysis)
-        # Consolidate once enough facts are gathered or the gatekeeper is confident.
+        # Monotonic message counter (survives the recent-turns window cap) so the
+        # turn cap actually fires and consolidation can't loop forever.
+        elapsed = session.total_messages
+        terminal = is_terminal_turn(turn_count=elapsed, analysis=analysis)
+        # Consolidate once enough facts are gathered, enough exchanges have
+        # passed, or the gatekeeper is confident.
         from Memory_Layer.session_memory import count_clinical_facts
         from graphrag.domain.messages import parse_diagnostic_confidence
 
         _facts = count_clinical_facts(working_memory.state)
         _conf = parse_diagnostic_confidence((analysis or {}).get("diagnostic_confidence"))
-        consolidate = _facts >= settings.CONSOLIDATE_MIN_FACTS or (
-            _conf is not None and _conf >= settings.DIAGNOSTIC_CONFIDENCE_THRESHOLD
+        consolidate = (
+            _facts >= settings.CONSOLIDATE_MIN_FACTS
+            or elapsed // 2 >= settings.CONSOLIDATE_AFTER_TURNS
+            or (_conf is not None and _conf >= settings.DIAGNOSTIC_CONFIDENCE_THRESHOLD)
         )
         needs_followup = bool((analysis or {}).get("needs_followup"))
         # On a consolidate/closing turn, deliver the assessment — don't ask again.

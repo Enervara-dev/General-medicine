@@ -131,6 +131,11 @@ class SessionMemory(BaseModel):
     # The rolling conversation window (capped at MAX_RECENT_TURNS)
     recent_turns: list[Message]     = Field(default_factory=list)
 
+    # Monotonic count of ALL messages ever added — unlike recent_turns it is not
+    # capped by the window, so it is the reliable signal for "how long has this
+    # consultation run" (drives the diagnostic turn cap + consolidation).
+    total_messages: int             = 0
+
     # A rolling prose summary of older turns (populated by the summarizer)
     summary:      str               = ""
 
@@ -146,6 +151,7 @@ class SessionMemory(BaseModel):
     def add_turn(self, message: Message) -> None:
         """Append a message and enforce the recent-turn cap."""
         self.recent_turns.append(message)
+        self.total_messages += 1
         self._trim_turns()
         self.updated_at = datetime.now(tz=timezone.utc)
 
