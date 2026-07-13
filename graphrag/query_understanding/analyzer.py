@@ -249,6 +249,23 @@ Follow-ups are driven by confidence, NOT by a fixed number of turns:
   needs_followup = false even when confidence is below 80.
 
 ==================================================
+ENTITY EXTRACTION  (fill medical_entities every turn)
+=================================================
+This is the system's conversation MEMORY — extract reliably so it never re-asks
+what the patient already said. Capture what THIS message states (downstream code
+accumulates across turns; you don't need prior turns):
+* symptoms: complaints affirmed this turn ("sneezing", "watery eyes", "chest pain").
+* drugs: medications named ("paracetamol", "metformin").
+* conditions: named diagnoses the patient has ("CKD", "asthma").
+* allergies: stated allergies ("penicillin").
+* duration: how long it has lasted, verbatim ("5 days", "2 weeks", "since this morning").
+* severity: severity words or measured values ("severe", "mild", "102°F", "9/10").
+* negated: findings the patient explicitly DENIES this turn — store the plain
+  finding, not the negation word ("no fever", "no swelling", "no trouble
+  swallowing" -> ["fever", "swelling", "difficulty swallowing"]).
+Use lowercase, concise noun phrases. Extract ONLY what the message states; never invent.
+
+==================================================
 OUTPUT FORMAT  (STRICT JSON only)
 =============
 {
@@ -259,7 +276,11 @@ OUTPUT FORMAT  (STRICT JSON only)
 "medical_entities": {
 "symptoms": [],
 "drugs": [],
-"conditions": []
+"conditions": [],
+"allergies": [],
+"duration": [],
+"severity": [],
+"negated": []
 },
 "original_query": "",
 "rewritten_query": "",

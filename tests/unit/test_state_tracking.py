@@ -13,9 +13,12 @@ from Memory_Layer.session_memory import merge_analysis_entities
 from Memory_Layer.session_memory.models import StructuredState
 
 
-def _analysis(symptoms=None, drugs=None, conditions=None):
+def _analysis(symptoms=None, drugs=None, conditions=None, allergies=None,
+              duration=None, severity=None, negated=None):
     return {"medical_entities": {
         "symptoms": symptoms or [], "drugs": drugs or [], "conditions": conditions or [],
+        "allergies": allergies or [], "duration": duration or [],
+        "severity": severity or [], "negated": negated or [],
     }}
 
 
@@ -43,6 +46,31 @@ def test_noop_when_no_entities():
     s = StructuredState(symptoms=["fever"])
     assert merge_analysis_entities(s, {}).symptoms == ["fever"]
     assert merge_analysis_entities(s, None).symptoms == ["fever"]
+
+
+def test_captures_duration_and_severity_the_regex_misses():
+    # These distinct slots drive the consolidation fact-count.
+    out = merge_analysis_entities(
+        StructuredState(), _analysis(symptoms=["fever"], duration=["5 days"], severity=["102°f"])
+    )
+    assert "5 days" in out.duration
+    assert "102°f" in out.severity
+
+
+def test_negation_removes_denied_findings():
+    # "no swelling" must drop swelling from state, not add it.
+    s = StructuredState(symptoms=["fever", "swelling", "high fever"])
+    out = merge_analysis_entities(s, _analysis(negated=["swelling", "fever"]))
+    assert "swelling" not in out.symptoms
+    # 'fever' and 'high fever' both contain the negated 'fever'.
+    assert "fever" not in out.symptoms and "high fever" not in out.symptoms
+
+
+def test_negation_wins_over_same_turn_affirmation():
+    out = merge_analysis_entities(
+        StructuredState(), _analysis(symptoms=["swelling"], negated=["swelling"])
+    )
+    assert "swelling" not in out.symptoms
 
 
 def test_ignores_malformed_entities():

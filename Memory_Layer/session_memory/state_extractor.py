@@ -284,32 +284,53 @@ def extract_state(session: SessionMemory, message: Message) -> StructuredState:
     return updated
 
 
+def _clean_entity_list(values: object) -> list[str]:
+    if not isinstance(values, list):
+        return []
+    return [str(v).strip().lower() for v in values if str(v).strip()]
+
+
+def _drop_negated(items: list[str], negated: list[str]) -> list[str]:
+    """Remove any item that contains a negated finding (e.g. negated 'fever'
+    drops 'fever' and 'high fever')."""
+    return [x for x in items if not any(n in str(x).strip().lower() for n in negated)]
+
+
 def merge_analysis_entities(
     state: StructuredState, analysis: dict[str, Any] | None
 ) -> StructuredState:
     """
     Fold the gatekeeper analyzer's LLM-extracted ``medical_entities`` into the
-    session state.
+    session state — the reliable extraction path.
 
     The regex extractor under-captures (it misses free-text symptoms like
-    "watery eyes"), so the analyzer's per-turn entity extraction is the more
-    reliable signal for "what has the patient already told us". Merging it here
-    keeps conversation state accurate so the answer model never re-asks and can
-    consolidate on time. Idempotent + deduplicated; a no-op when there's nothing
-    to add.
+    "watery eyes", most durations, and measured severities), so the analyzer's
+    per-turn LLM extraction is the trustworthy signal for "what has the patient
+    already told us". This keeps conversation state accurate so the answer model
+    never re-asks and can consolidate on time. Also applies NEGATIONS: findings
+    the patient explicitly denied ("no fever", "no swelling") are removed from
+    state so they aren't carried as active symptoms. Idempotent + deduplicated;
+    a no-op when there's nothing to add.
     """
     entities = (analysis or {}).get("medical_entities") or {}
 
-    def _clean(values: object) -> list[str]:
-        if not isinstance(values, list):
-            return []
-        return [str(v).strip().lower() for v in values if str(v).strip()]
-
     patch = RawEntities(
-        symptoms=_clean(entities.get("symptoms")),
-        drugs=_clean(entities.get("drugs")),
-        conditions=_clean(entities.get("conditions")),
+        symptoms=_clean_entity_list(entities.get("symptoms")),
+        drugs=_clean_entity_list(entities.get("drugs")),
+        conditions=_clean_entity_list(entities.get("conditions")),
+        allergies=_clean_entity_list(entities.get("allergies")),
+        duration=_clean_entity_list(entities.get("duration")),
+        severity=_clean_entity_list(entities.get("severity")),
     )
-    if not (patch.symptoms or patch.drugs or patch.conditions):
+    negated = _clean_entity_list(entities.get("negated"))
+
+    if not (patch.all_named_entities() or patch.duration or patch.severity or negated):
         return state
-    return merge_state(state, patch)
+
+    merged = merge_state(state, patch)
+    if negated:
+        merged = merged.model_copy(deep=True)
+        merged.symptoms = _drop_negated(merged.symptoms, negated)
+        merged.conditions = _drop_negated(merged.conditions, negated)
+        merged.previous_concerns = _drop_negated(merged.previous_concerns, negated)
+    return merged

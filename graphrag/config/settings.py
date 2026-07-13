@@ -124,11 +124,11 @@ class Settings(BaseSettings):
     # instead of another bare question. Keeps summaries as checkpoints, not
     # turn-by-turn narration.
     #
-    # Tuned to the CURRENT regex extractor, which under-captures (it often misses
-    # duration/severity), so 2 extracted slots ≈ "enough gathered". Raise this
-    # toward 3–4 when fact extraction improves (LLM-based memory), or the
-    # interview will consolidate a touch early.
-    CONSOLIDATE_MIN_FACTS: int = 2
+    # Now that extraction is LLM-based (the analyzer reliably captures symptom +
+    # duration + severity + medication as distinct slots), 3 distinct facts is a
+    # solid "enough to consolidate" bar. Confidence and the turn backstop below
+    # still trigger consolidation for single-slot cases (e.g. a wound).
+    CONSOLIDATE_MIN_FACTS: int = 3
 
     # Turn-based consolidation backstop (in completed exchanges). The fact count
     # above under-fires when everything lands in one slot (e.g. a wound = all
