@@ -8,6 +8,7 @@ If you're reading this from a frontend repo: everything you need is here. The ba
 
 ## Table of contents
 
+0. [Build guide — start here (for the assistant wiring this up)](#build-guide--start-here)
 1. [Quick start](#quick-start)
 2. [Base URL and environments](#base-url-and-environments)
 3. [Authentication](#authentication)
@@ -32,6 +33,157 @@ If you're reading this from a frontend repo: everything you need is here. The ba
    - [curl](#curl)
 10. [Operational notes](#operational-notes)
 11. [Versioning and compatibility](#versioning-and-compatibility)
+
+---
+
+## Build guide — start here
+
+> **If you are an AI assistant (or engineer) building the chat UI: implement from this section.** It is self-contained — you do not need to read backend code. The rest of the document is reference depth you can consult as needed.
+
+### The whole model in one paragraph
+
+Send a chat turn to **`POST /chat/blocks`**. The response streams **typed "blocks"** as **NDJSON** — one JSON object per line, each `{ "type": ..., "data": {...} }`. You render each block by its `type` as it arrives. A chat turn = an ordered list of rendered blocks (a summary bubble, maybe a warning banner, condition cards, next-steps, and at most one follow-up chip). Persist a `session_id` across turns so the assistant remembers the conversation. That's the entire integration.
+
+**Pick this endpoint:** use `/chat/blocks` for a structured chat UI. (`/chat` returns one plain-text `answer` if you only want a text bubble; `/chat/stream/blocks` is the same blocks over SSE if your infra needs `EventSource`. See the [endpoint chooser](#which-chat-endpoint-should-i-use).)
+
+### What you build
+
+1. A **chat client** that POSTs a turn and yields blocks (drop-in code below).
+2. A **block renderer** that maps each `block.type` to a UI component (spec below — implement all seven types).
+3. **Session state**: one `session_id` per conversation, persisted and reused.
+4. **Safety rendering**: emergency / mental-health-crisis turns arrive as blocks — render prominently, make phone numbers tappable, keep the crisis one calm (not a red error).
+5. Optional: **image upload** via `/chat/image` (multipart) — returns the same blocks + `media` metadata.
+
+### Drop-in TypeScript client (`/chat/blocks`)
+
+```ts
+export type Block =
+  | { type: "summary";             data: { text: string } }
+  | { type: "key_points";          data: { points: string[] } }
+  | { type: "bullet_list";         data: { title: string | null; items: string[] } }
+  | { type: "follow_up_questions"; data: { questions: string[] } }   // ≤ 1 question
+  | { type: "warning";             data: { text: string; severity: "info" | "caution" | "critical" } }
+  | { type: "next_steps";          data: { steps: string[] } }
+  | { type: "condition_list";      data: { conditions: { name: string; likelihood: string | null; description: string | null }[] } };
+
+export interface ChatTurn { query: string; session_id?: string; user_id?: string }
+
+/** Stream typed blocks for one chat turn. Each yielded value is a fully-valid Block. */
+export async function* streamChatBlocks(
+  base: string,
+  body: ChatTurn,
+  init: { apiKey?: string; signal?: AbortSignal } = {},
+): AsyncGenerator<Block, void, void> {
+  const res = await fetch(`${base}/chat/blocks`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...(init.apiKey && { "X-API-Key": init.apiKey }) },
+    body: JSON.stringify(body),
+    signal: init.signal,
+  });
+  if (!res.ok || !res.body) throw new Error(`chat failed: HTTP ${res.status} ${await res.text().catch(() => "")}`);
+
+  const reader = res.body.getReader();
+  const dec = new TextDecoder("utf-8");
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, { stream: true });
+    let nl: number;
+    while ((nl = buf.indexOf("\n")) >= 0) {
+      const line = buf.slice(0, nl).trim();
+      buf = buf.slice(nl + 1);
+      if (line) yield JSON.parse(line) as Block;   // guaranteed valid JSON block
+    }
+  }
+  if (buf.trim()) yield JSON.parse(buf) as Block;    // final line may lack a trailing \n
+}
+```
+
+Usage (framework-agnostic — swap `renderBlock` for your components):
+
+```ts
+async function sendTurn(query: string) {
+  const blocks: Block[] = [];
+  for await (const block of streamChatBlocks(BASE, { query, session_id: sessionId, user_id }, { apiKey })) {
+    blocks.push(block);
+    renderBlock(block);          // append/replace in the current assistant message
+  }
+  // `blocks` is the full assistant turn once the loop ends.
+}
+```
+
+### Block → UI rendering spec (implement all seven)
+
+Render blocks **in the order received** (don't reorder by type). `data` shapes are exact — no other fields appear.
+
+| `type` | `data` | Render as |
+|---|---|---|
+| `summary` | `{ text }` | The main assistant message text (a chat bubble / paragraph). Usually the first block. |
+| `key_points` | `{ points: string[] }` | A bulleted list. |
+| `bullet_list` | `{ title: string\|null, items: string[] }` | Optional heading (`title`) + bulleted `items`. |
+| `condition_list` | `{ conditions: [{ name, likelihood: string\|null, description: string\|null }] }` | "Possible causes" — one card/row per condition: **name**, a `likelihood` badge (`"most likely"`/`"possible"`/`"less likely"` — may be null), and `description` (may be null). |
+| `warning` | `{ text, severity: "info"\|"caution"\|"critical" }` | An alert. **`severity` drives styling:** `info` = subtle, `caution` = amber, `critical` = prominent. Always show `critical` front-and-center. |
+| `next_steps` | `{ steps: string[] }` | A "What to do" list (numbered/ordered). Linkify any phone numbers as `tel:`. |
+| `follow_up_questions` | `{ questions: string[] }` (≤1 item) | A single suggested-reply **chip**. Tapping it sends its text as the next turn's `query`. |
+
+### Guarantees you can build on (don't code defensively around these)
+
+- **Every line is a valid block** — `JSON.parse` + switch on `type`; you never get partial objects, wrong-typed fields, or non-JSON.
+- **Always ≥ 1 block** — if generation fails you still get a fallback `summary`; the stream is never empty.
+- **≤ 1 `follow_up_questions` block, ≤ 1 question inside** — render one chip, never a list of questions. On a closing/assessment turn there's no follow-up at all.
+- **Conversation converges** — the assistant asks a focused question while gathering, then delivers a `summary` (+ `condition_list`/`next_steps`) once it has enough. You don't manage this; just render what streams.
+
+### Safety responses (render these prominently)
+
+Some turns short-circuit to a fixed, safety-reviewed block set. Detect by block shape + `warning.severity` and style accordingly:
+
+| Situation | Blocks (in order) | Render |
+|---|---|---|
+| **Physical emergency** | `warning`(`critical`) → `next_steps` | Prominent critical banner; make emergency numbers (112 / 108) tappable `tel:` links. |
+| **Mental-health crisis** | `summary`(empathetic) → `warning`(`critical`) → `next_steps`(helplines: Tele-MANAS 14416, KIRAN 1800-599-0019) | **Calm, supportive — NOT a red error.** Lead with the summary; keep helpline numbers tappable. |
+| **Refusal / out-of-scope** | a single `summary` | Plain message. |
+
+Rule of thumb: **any `warning` with `severity:"critical"` = show it front-and-center and make the numbers in the following `next_steps` tappable.**
+
+### Session + user_id (get this right or memory breaks)
+
+- **`session_id`**: one per conversation. First turn — send your own or omit it; the response's `session_id` is authoritative, **persist it** (e.g. `sessionStorage`) and send it on every subsequent turn. Same id ⇒ the assistant remembers earlier turns (symptoms, answers) and won't re-ask.
+- **`user_id`**: optional, stable per real person (not per device/session). Enables long-term memory across conversations. Omit if you don't have accounts.
+
+### Image upload (`/chat/image`)
+
+`multipart/form-data`, **not** JSON — let the browser set the boundary (don't set `Content-Type`). Returns a normal chat response (JSON, not a stream) plus a `media` object.
+
+```ts
+const fd = new FormData();
+fd.append("image", file);                 // File from <input type="file">, image/png or image/jpeg, ≤10MB
+fd.append("query", "is this rash serious?"); // optional
+fd.append("session_id", sessionId);          // optional
+const res = await fetch(`${BASE}/chat/image`, {
+  method: "POST",
+  headers: { ...(apiKey && { "X-API-Key": apiKey }) },
+  body: fd,
+}).then(r => r.json());   // { answer, media: { category, route, caption, extracted_facts, ... }, ... }
+```
+
+### Do / Don't
+
+- **Do** render blocks in arrival order; **do** persist `session_id`; **do** send `X-API-Key` when configured; **do** linkify phone numbers.
+- **Don't** set `Content-Type` on the image upload; **don't** re-order or dedupe blocks; **don't** build defensive JSON repair (the server guarantees validity); **don't** render a lone `warning(critical)` quietly — it's urgent.
+
+### Build checklist
+
+- [ ] Config: `BASE` URL + optional `apiKey` (env, never hard-coded in a public bundle — see [Authentication](#authentication)).
+- [ ] `streamChatBlocks` client wired to `/chat/blocks`.
+- [ ] `renderBlock` handles all 7 types (table above).
+- [ ] `session_id` persisted from the first response and reused.
+- [ ] Follow-up chip: tapping sends its text as the next turn.
+- [ ] Safety rendering: `warning(critical)` prominent; crisis calm; `tel:` links.
+- [ ] Error handling: non-2xx → parse the [error envelope](#error-envelope); retry `UPSTREAM_UNAVAILABLE`/`RATE_LIMITED` with backoff.
+- [ ] (Optional) `/chat/image` upload + `media` display; `user_id` for long-term memory.
+
+Everything below is reference depth (auth, CORS, SSE prose protocol, per-endpoint detail, ops). Consult it when you need it.
 
 ---
 
