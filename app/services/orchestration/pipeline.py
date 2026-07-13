@@ -600,7 +600,10 @@ class AsyncOrchestrator:
                 graph_context=graph_context_str,
                 query_type=intent_str,
                 risk_level=str((analysis or {}).get("risk_level") or "none"),
-                terminal=terminal,
+                # A consolidate turn closes the interview like terminal: the
+                # validator drops any stray follow_up so the model must deliver
+                # the summary/assessment instead of asking again.
+                terminal=terminal or consolidate,
                 allow_followups=allow_followups,
                 consolidate=consolidate,
                 output_format="blocks",
@@ -612,7 +615,7 @@ class AsyncOrchestrator:
                 user_prompt=user_prompt,
                 temperature=0.2,
             )
-            async for block in aiter_blocks(token_stream, terminal=terminal):
+            async for block in aiter_blocks(token_stream, terminal=terminal or consolidate):
                 emitted.append(block)
                 yield block
 

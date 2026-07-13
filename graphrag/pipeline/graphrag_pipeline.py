@@ -433,7 +433,10 @@ class GraphRAGPipeline:
             query_type=intent_str,
             goal=config.goal,
             risk_level=str((analysis or {}).get("risk_level") or "none"),
-            terminal=terminal,
+            # A consolidate turn CLOSES the interview like a terminal turn: the
+            # validator drops any stray follow_up the model volunteers, forcing
+            # it to deliver the summary/assessment instead of asking again.
+            terminal=terminal or consolidate,
             allow_followups=allow_followups,
             consolidate=consolidate,
         )
