@@ -27,6 +27,7 @@ from Memory_Layer.session_memory import (
     SessionMemory,
     assemble_context_payload,
     extract_state,
+    merge_analysis_entities,
     get_working_memory,
     maybe_summarize,
 )
@@ -135,7 +136,11 @@ async def save_after_turn(
         query_type=query_type or analysis.get("intent"),
         risk_level=_risk_from_analysis(analysis),
     )
+    # Regex extraction first, then fold in the analyzer's LLM-extracted entities
+    # (more reliable) so state tracks what the patient actually said and the
+    # model never re-asks it.
     session.state = extract_state(session, user_msg)
+    session.state = merge_analysis_entities(session.state, analysis)
     session.add_turn(user_msg)
 
     if assistant_answer:

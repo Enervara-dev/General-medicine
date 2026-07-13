@@ -282,3 +282,34 @@ def extract_state(session: SessionMemory, message: Message) -> StructuredState:
         updated.last_intent = message.query_type
 
     return updated
+
+
+def merge_analysis_entities(
+    state: StructuredState, analysis: dict[str, Any] | None
+) -> StructuredState:
+    """
+    Fold the gatekeeper analyzer's LLM-extracted ``medical_entities`` into the
+    session state.
+
+    The regex extractor under-captures (it misses free-text symptoms like
+    "watery eyes"), so the analyzer's per-turn entity extraction is the more
+    reliable signal for "what has the patient already told us". Merging it here
+    keeps conversation state accurate so the answer model never re-asks and can
+    consolidate on time. Idempotent + deduplicated; a no-op when there's nothing
+    to add.
+    """
+    entities = (analysis or {}).get("medical_entities") or {}
+
+    def _clean(values: object) -> list[str]:
+        if not isinstance(values, list):
+            return []
+        return [str(v).strip().lower() for v in values if str(v).strip()]
+
+    patch = RawEntities(
+        symptoms=_clean(entities.get("symptoms")),
+        drugs=_clean(entities.get("drugs")),
+        conditions=_clean(entities.get("conditions")),
+    )
+    if not (patch.symptoms or patch.drugs or patch.conditions):
+        return state
+    return merge_state(state, patch)

@@ -16,6 +16,7 @@ from Memory_Layer.session_memory import (
     extract_state,
     get_working_memory,
     maybe_summarize,
+    merge_analysis_entities,
 )
 from Memory_Layer.session_memory.context_builder import ContextPayload, FinalPrompt
 from Memory_Layer.session_memory.retriever import WorkingMemory
@@ -166,7 +167,10 @@ class SessionMemoryAdapter:
             query_type=query_type or analysis.get("intent"),
             risk_level=self._risk_from_analysis(analysis),
         )
+        # Regex extraction + the analyzer's LLM entities so state reliably
+        # tracks what the patient said (regex alone under-captures → re-asking).
         session.state = extract_state(session, user_msg)
+        session.state = merge_analysis_entities(session.state, analysis)
         session.add_turn(user_msg)
 
         if assistant_answer:

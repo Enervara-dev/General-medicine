@@ -30,6 +30,7 @@ from .state_extractor import (
     RawEntities,
     extract_entities,
     extract_state,
+    merge_analysis_entities,
     merge_state,
     update_preferences,
 )
@@ -66,7 +67,7 @@ __all__ = [
     # Session manager
     "SessionManager", "session_context", "SESSION_TTL_SEC",
     # State extractor
-    "RawEntities", "extract_entities", "extract_state",
+    "RawEntities", "extract_entities", "extract_state", "merge_analysis_entities",
     "merge_state", "update_preferences",
     # Summarizer
     "should_summarize", "summarize_session", "maybe_summarize",
