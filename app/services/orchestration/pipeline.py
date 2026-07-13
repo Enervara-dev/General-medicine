@@ -166,7 +166,7 @@ class AsyncOrchestrator:
         )
 
         # Stage 3: Neo4j (sync driver → thread)
-        if graph_hops > 0 and extracted_entities:
+        if self._c.settings.GRAPH_RETRIEVAL_ENABLED and graph_hops > 0 and extracted_entities:
             with _Stage("graph_retrieve", timing):
                 graph_lines = await asyncio.to_thread(
                     self._c.kg_retriever.retrieve_relations,
@@ -360,7 +360,7 @@ class AsyncOrchestrator:
                 query=retrieval_query_text,
             )
 
-            if graph_hops > 0 and extracted_entities:
+            if self._c.settings.GRAPH_RETRIEVAL_ENABLED and graph_hops > 0 and extracted_entities:
                 with _Stage("graph_retrieve", timing):
                     graph_lines = await asyncio.to_thread(
                         self._c.kg_retriever.retrieve_relations,
@@ -563,7 +563,7 @@ class AsyncOrchestrator:
                 query=retrieval_query_text,
             )
 
-            if graph_hops > 0 and extracted_entities:
+            if self._c.settings.GRAPH_RETRIEVAL_ENABLED and graph_hops > 0 and extracted_entities:
                 graph_lines = await asyncio.to_thread(
                     self._c.kg_retriever.retrieve_relations, extracted_entities, graph_hops, 20,
                 )

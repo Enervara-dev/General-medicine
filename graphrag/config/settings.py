@@ -67,13 +67,18 @@ class Settings(BaseSettings):
     NEO4J_URI: str = "bolt://127.0.0.1:7687"
     NEO4J_USERNAME: str = "neo4j"
     NEO4J_PASSWORD: Optional[str] = None
+    # Master switch for the Stage-3 graph-traversal step. Currently OFF: the
+    # Neo4j Aura instance is unreachable and graph relations add latency + noise
+    # without value. Flip to true (or set env GRAPH_RETRIEVAL_ENABLED=true) to
+    # re-enable once the graph is back.
+    GRAPH_RETRIEVAL_ENABLED: bool = False
 
     # ----- Google Gemini (LLM provider: answer, classifier, analyzer, extraction, cleaning) -----
     GEMINI_API_KEY: Optional[str] = None
 
-    # All LLM call sites use gemini-2.5-flash-lite. Override per-role via env
-    # if a specific role needs the heavier gemini-2.5-flash model.
-    ANSWER_MODEL: str = "gemini-2.5-flash-lite"
+    # Most LLM roles use gemini-2.5-flash-lite. The final answer uses the heavier
+    # gemini-2.5-flash for better clinical synthesis. Override any role via env.
+    ANSWER_MODEL: str = "gemini-2.5-flash"
     EXTRACTION_MODEL: str = "gemini-2.5-flash-lite"
     CLEANING_MODEL: str = "gemini-2.5-flash-lite"
     CLASSIFIER_MODEL: str = "gemini-2.5-flash-lite"

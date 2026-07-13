@@ -2,14 +2,54 @@ import argparse
 import sys
 from uuid import uuid4
 
+# Console output includes non-ASCII (⚠️, •, …); force UTF-8 so it never crashes
+# on a legacy Windows code page (cp1252).
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
+
+def _render_block_human(block) -> str:
+    """Format one validated UI block as readable console text (not raw JSON)."""
+    t = block.type
+    d = block.data
+    if t == "summary":
+        return d.text
+    if t == "key_points":
+        return "\n".join(f"  • {p}" for p in d.points)
+    if t == "bullet_list":
+        head = f"{d.title}\n" if getattr(d, "title", None) else ""
+        return head + "\n".join(f"  • {i}" for i in d.items)
+    if t == "condition_list":
+        lines = ["Possible causes:"]
+        for c in d.conditions:
+            like = f" ({c.likelihood})" if c.likelihood else ""
+            desc = f" — {c.description}" if c.description else ""
+            lines.append(f"  • {c.name}{like}{desc}")
+        return "\n".join(lines)
+    if t == "warning":
+        return f"⚠️  [{d.severity.upper()}] {d.text}"
+    if t == "next_steps":
+        return "\n".join(["Next steps:"] + [f"  {i}. {s}" for i, s in enumerate(d.steps, 1)])
+    if t == "follow_up_questions":
+        return "\n".join(f"❓ {q}" for q in d.questions)
+    return ""
+
 
 def _stream_blocks_to_stdout(pipeline, query_text: str, session_id: str, user_id: str | None) -> None:
-    """Drive run_stream() and print each validated block as one NDJSON line."""
-    from graphrag.validators.answer_validator import block_to_line
-
+    """Drive run_stream() and print each validated block as readable text."""
+    print("\nAssistant")
+    print("-" * 72)
+    produced = False
     for block in pipeline.run_stream(query_text, session_id=session_id, user_id=user_id):
-        # block_to_line already appends "\n"; flush so blocks appear as they arrive.
-        print(block_to_line(block), end="", flush=True)
+        text = _render_block_human(block)
+        if text:
+            print(text, flush=True)
+            produced = True
+    if not produced:
+        print("(no answer was produced — please try rephrasing)")
+    print("-" * 72)
 
 
 def _print_banner(

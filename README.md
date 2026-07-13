@@ -113,7 +113,7 @@ All I/O on the request path is awaitable. The only sync clients in the project (
 | Knowledge graph | Neo4j Aura (TLS, `neo4j+s://`) — same driver works against a local `bolt://` instance for dev |
 | Short-term memory | Redis 5 (`redis.asyncio`, `orjson` serialization, 2-hour TTL) |
 | Long-term memory | Pinecone (`episodicmemory` index, per-user namespace) |
-| LLM (everywhere) | Google Gemini — `gemini-2.5-flash-lite` via `google-genai` SDK |
+| LLM | Google Gemini via `google-genai` — final **answer** on `gemini-2.5-flash`; gatekeeper / classifier / memory roles on `gemini-2.5-flash-lite` |
 | Structured logging | structlog (JSON) bridged into stdlib `logging` |
 | PDF parsing | PyMuPDF (`fitz`) |
 | Data validation | Pydantic v2 + pydantic-settings |
@@ -121,7 +121,7 @@ All I/O on the request path is awaitable. The only sync clients in the project (
 | Deploy target | Render (Web Service, Docker runtime) |
 | Language | Python 3.10+ |
 
-Every LLM role in the project — gatekeeper, answer, classifier, episodic compression, gist generation, summarizer — uses `gemini-2.5-flash-lite`. Override any role to `gemini-2.5-flash` via the matching `*_MODEL` env var if Lite's free-tier quota becomes a constraint.
+The final **answer** (`ANSWER_MODEL`) runs on `gemini-2.5-flash` for stronger clinical synthesis; every other role — gatekeeper, classifier, episodic compression, gist generation, summarizer — uses `gemini-2.5-flash-lite`. Override any role via the matching `*_MODEL` env var.
 
 ---
 
@@ -641,6 +641,7 @@ Reads questions from a `questions` column, writes answers back to `model_answer`
 - **Pinecone + Neo4j drivers are sync.** They're wrapped with `asyncio.to_thread` rather than rewritten; this is fine for current load. Revisit if QPS justifies a true async driver.
 - **In-memory metrics.** `/metrics` is per-process. Aggregate via Prometheus / OTel when running more than one instance.
 - **No rate limiting / WAF in-app.** Render's frontproxy handles abuse; slowapi can be layered in later if needed.
+- **Graph traversal (Stage 3) is currently disabled** (`GRAPH_RETRIEVAL_ENABLED=false`) — the Neo4j Aura instance is unreachable, so the pipeline skips the graph step to avoid latency + errors. Answers run on vector retrieval + memory only. Set `GRAPH_RETRIEVAL_ENABLED=true` to re-enable once Neo4j is back.
 - **Longitudinal Postgres memory is built but unwired.** The `memory/` subsystem is intentionally not part of the request path right now.
 - **Token estimation is approximate.** A flat 4-chars-per-token heuristic drives context-window budgeting. Swap in a real tokenizer for tight budgets.
 - **Neo4j drops edges silently** when a source entity already has 20 relations.

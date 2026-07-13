@@ -206,7 +206,7 @@ class GraphRAGPipeline:
         logger.info("⚙️   STAGE 3 → Knowledge Graph Traversal")
         logger.info(_SEPARATOR)
 
-        if graph_hops > 0 and extracted_entities:
+        if settings.GRAPH_RETRIEVAL_ENABLED and graph_hops > 0 and extracted_entities:
             graph_context_list = self.neo4j_retriever.retrieve_relations(
                 extracted_entities,
                 hops  = graph_hops,
@@ -395,7 +395,7 @@ class GraphRAGPipeline:
             query=retrieval_query_text,
         )
 
-        if graph_hops > 0 and extracted_entities:
+        if settings.GRAPH_RETRIEVAL_ENABLED and graph_hops > 0 and extracted_entities:
             graph_context_list = self.neo4j_retriever.retrieve_relations(
                 extracted_entities, hops=graph_hops, limit=20,
             )
