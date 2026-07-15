@@ -198,10 +198,40 @@ def layer_retrieval_grounding() -> str:
 # Layer 6 — Questioning strategy (minimal, high-signal)
 # ---------------------------------------------------------------------------
 
-def layer_tool_instructions(tools: list | None = None) -> str:
+def layer_tool_instructions(
+    tools: list | None = None,
+    *,
+    consolidate: bool = False,
+    terminal: bool = False,
+) -> str:
     # Format-AGNOSTIC consultation flow + questioning strategy. Shared by the
     # prose and block paths, so it must not mention JSON/blocks — those
     # wire-format rules live in layer_block_plan / layer_output_contract.
+    #
+    # On a consolidation/closing turn the caller has ALREADY decided we have
+    # enough — so we must NOT hand the model the questioning latitude below,
+    # which it will otherwise use to ask "just one more" and skip the
+    # assessment entirely. Replace the whole flow with a single dominant
+    # STOP-GATHERING directive.
+    if consolidate or terminal:
+        return (
+            "CONSULTATION FLOW — ASSESSMENT MODE. The information-gathering "
+            "phase is OVER for this turn. You already have enough to reason.\n"
+            "- DO NOT ask any question this turn. Not one. If a question is on "
+            "the tip of your tongue, answer it yourself with your best "
+            "probabilistic judgement and fold that into the assessment — do not "
+            "put it to the patient.\n"
+            "- Deliver your WORKING ASSESSMENT now: the leading explanation and "
+            "WHY it beats the alternatives (the discriminating feature), what to "
+            "do today, what to monitor, and the red flags that would change "
+            "urgency. Synthesise everything gathered so far — never a bare "
+            "restatement of their last message.\n"
+            "- Use probabilistic language; name a specific trigger + timeframe "
+            "for any clinical-review advice. Close warmly and invite further "
+            "questions, but append NO follow-up question of your own.\n"
+            "- Never re-ask or echo anything already in memory or the "
+            "conversation; treat it as known and build on it."
+        )
     return (
         "CONSULTATION FLOW — gather efficiently, consolidate at the right moments.\n"
         "- SUMMARIES ARE CHECKPOINTS, NOT PER-TURN NARRATION. Give a synthesised "
@@ -480,13 +510,20 @@ def layer_block_plan(
     # Forbid follow-ups whenever they aren't explicitly requested this turn —
     # closing turns AND turns where the gatekeeper didn't flag one. Without this,
     # the model volunteers a follow_up_questions block even when unwanted.
-    if terminal or not allow_followups:
+    if terminal or consolidate or not allow_followups:
         reason = (
-            "this is a closing/assessment turn"
-            if terminal
+            "this is a closing/assessment turn — you have enough; deliver the "
+            "assessment"
+            if (terminal or consolidate)
             else "no further question is warranted"
         )
-        no_followup_note = f"\n- Do NOT emit a follow_up_questions block — {reason}."
+        no_followup_note = (
+            f"\n- DO NOT emit a follow_up_questions block — {reason}. If you feel "
+            f"the urge to ask something, resolve it yourself with your best "
+            f"clinical judgement and put the CONCLUSION in your summary; a "
+            f"follow_up_questions block this turn will be discarded, leaving the "
+            f"patient with nothing."
+        )
     else:
         no_followup_note = ""
     return (
@@ -603,7 +640,7 @@ def compose_system_prompt(
         layer_runtime_modifiers(risk_level=risk_level, has_name=has_name),
         layer_session_state_instructions(),
         layer_retrieval_grounding(),
-        layer_tool_instructions(tools),
+        layer_tool_instructions(tools, consolidate=consolidate, terminal=terminal),
         *format_layers,
     ]
     return "\n\n".join(layer for layer in layers if layer)
