@@ -45,6 +45,7 @@ _ALLOWED_DATA_FIELDS: dict[str, set[str]] = {
     "next_steps": {"steps"},
     "condition_list": {"conditions"},
     "decision": {"verdict", "rationale"},
+    "otc_medications": {"medications"},
 }
 
 # The five verdicts the decision block accepts, plus common aliases a model
@@ -341,4 +342,15 @@ def render_blocks_text(blocks: list[Block]) -> str:
                 parts.append(" ".join(bits))
         elif t == "decision":
             parts.append(f"[{d.verdict.replace('_', ' ').upper()}] {d.rationale}")
+        elif t == "otc_medications":
+            parts.append("OTC options:")
+            for m in d.medications:
+                bits = [m.name]
+                if m.purpose:
+                    bits.append(f"— {m.purpose}")
+                if m.dosage:
+                    bits.append(f"({m.dosage})")
+                if m.caution:
+                    bits.append(f"[caution: {m.caution}]")
+                parts.append("  " + " ".join(bits))
     return "\n".join(parts).strip()

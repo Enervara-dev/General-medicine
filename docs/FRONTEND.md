@@ -65,7 +65,8 @@ export type Block =
   | { type: "warning";             data: { text: string; severity: "info" | "caution" | "critical" } }
   | { type: "next_steps";          data: { steps: string[] } }
   | { type: "condition_list";      data: { conditions: { name: string; likelihood: string | null; description: string | null }[] } }
-  | { type: "decision";            data: { verdict: "yes" | "no" | "possibly" | "seek_urgent_care" | "insufficient_information"; rationale: string } };
+  | { type: "decision";            data: { verdict: "yes" | "no" | "possibly" | "seek_urgent_care" | "insufficient_information"; rationale: string } }
+  | { type: "otc_medications";     data: { medications: { name: string; purpose: string; dosage: string | null; caution: string | null }[] } };
 
 export interface ChatTurn { query: string; session_id?: string; user_id?: string }
 
@@ -114,7 +115,7 @@ async function sendTurn(query: string) {
 }
 ```
 
-### Block → UI rendering spec (implement all eight)
+### Block → UI rendering spec (implement all nine)
 
 Render blocks **in the order received** (don't reorder by type). `data` shapes are exact — no other fields appear.
 
@@ -128,6 +129,7 @@ Render blocks **in the order received** (don't reorder by type). `data` shapes a
 | `warning` | `{ text, severity: "info"\|"caution"\|"critical" }` | An alert. **`severity` drives styling:** `info` = subtle, `caution` = amber, `critical` = prominent. Always show `critical` front-and-center. |
 | `next_steps` | `{ steps: string[] }` | A "What to do" list (numbered/ordered). Linkify any phone numbers as `tel:`. |
 | `follow_up_questions` | `{ questions: string[] }` (≤1 item) | A single suggested-reply **chip**. Tapping it sends its text as the next turn's `query`. |
+| `otc_medications` | `{ medications: [{ name, purpose, dosage: string\|null, caution: string\|null }] }` | A "Over-the-counter options" card list, shown **last**. One row per medicine: **name** (bold), `purpose` (what it helps), `dosage` badge if present, and `caution` as a subtle warning line if present. These are self-care OTC suggestions only — a good place for a small "not a prescription — check with a pharmacist" disclaimer. |
 
 ### Guarantees you can build on (don't code defensively around these)
 
@@ -414,11 +416,13 @@ Each line is `{"type": ..., "data": {...}}`. Block types:
 | `next_steps` | `{ steps: string[] }` |
 | `condition_list` | `{ conditions: [{ name, likelihood: string\|null, description: string\|null }] }` |
 | `decision` | `{ verdict: "yes"\|"no"\|"possibly"\|"seek_urgent_care"\|"insufficient_information", rationale }` |
+| `otc_medications` | `{ medications: [{ name, purpose, dosage: string\|null, caution: string\|null }] }` |
 
 Field notes:
 - `warning.severity` is one of `"info" | "caution" | "critical"` — use it to pick styling (subtle / amber / prominent). No other values occur.
 - `condition_list[].likelihood`, when present, is human text like `"most likely" | "possible" | "less likely"` — render as a label/badge; it may be `null`.
 - `decision.verdict` is one of exactly five values — render as a colored verdict pill/banner. On a decision-type turn this block leads (no `summary`); the rest of the turn (`key_points` / `warning` / `next_steps`) supports it. A `seek_urgent_care` verdict always comes with a `critical` `warning`.
+- `otc_medications` appears **only on a concluded answer** (the final assessment or a decision turn), always as the **last** block, and only when safe self-care applies — you won't get it mid-consultation or on educational/emergency turns. `name` + `purpose` are always present; `dosage` and `caution` may be `null`. These are OTC (over-the-counter) suggestions only, never prescriptions.
 - `follow_up_questions.questions` never has more than one item (see guarantees below).
 - Blocks arrive in a sensible reading order (e.g. `summary` first, `next_steps`/`follow_up_questions` last). Render them in the order received; don't reorder by type.
 

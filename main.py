@@ -31,6 +31,13 @@ def _render_block_human(block) -> str:
     if t == "decision":
         verdict = d.verdict.replace("_", " ").upper()
         return f"➡️  DECISION: {verdict}\n{d.rationale}"
+    if t == "otc_medications":
+        lines = ["💊 OTC options you can consider:"]
+        for m in d.medications:
+            dose = f" — {m.dosage}" if m.dosage else ""
+            caution = f" (caution: {m.caution})" if m.caution else ""
+            lines.append(f"  • {m.name}: {m.purpose}{dose}{caution}")
+        return "\n".join(lines)
     if t == "warning":
         return f"⚠️  [{d.severity.upper()}] {d.text}"
     if t == "next_steps":

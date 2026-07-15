@@ -94,6 +94,19 @@ class DecisionData(BaseModel):
     rationale: str = Field(min_length=1)
 
 
+class OtcMedication(BaseModel):
+    model_config = _STRICT
+    name: str = Field(min_length=1)          # e.g. "Paracetamol", "ORS"
+    purpose: str = Field(min_length=1)       # what it helps with, plain English
+    dosage: Optional[str] = None             # typical adult OTC dose, if given
+    caution: Optional[str] = None            # key caveat / when not to use
+
+
+class OtcMedicationsData(BaseModel):
+    model_config = _STRICT
+    medications: list[OtcMedication] = Field(min_length=1)
+
+
 # ---------------------------------------------------------------------------
 # Block envelopes (type-discriminated)
 # ---------------------------------------------------------------------------
@@ -146,6 +159,12 @@ class DecisionBlock(BaseModel):
     data: DecisionData
 
 
+class OtcMedicationsBlock(BaseModel):
+    model_config = _STRICT
+    type: Literal["otc_medications"]
+    data: OtcMedicationsData
+
+
 # Discriminated union — validate one line as exactly one of these by its `type`.
 Block = Annotated[
     Union[
@@ -157,6 +176,7 @@ Block = Annotated[
         NextStepsBlock,
         ConditionListBlock,
         DecisionBlock,
+        OtcMedicationsBlock,
     ],
     Field(discriminator="type"),
 ]
@@ -175,6 +195,7 @@ BLOCK_TYPES: tuple[str, ...] = (
     "next_steps",
     "condition_list",
     "decision",
+    "otc_medications",
 )
 
 
@@ -201,6 +222,8 @@ __all__ = [
     "Condition",
     "DecisionData",
     "DecisionVerdict",
+    "OtcMedication",
+    "OtcMedicationsData",
     # envelopes
     "SummaryBlock",
     "KeyPointsBlock",
@@ -210,4 +233,5 @@ __all__ = [
     "NextStepsBlock",
     "ConditionListBlock",
     "DecisionBlock",
+    "OtcMedicationsBlock",
 ]

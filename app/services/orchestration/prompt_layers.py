@@ -64,6 +64,15 @@ _TRIAGE_INTENTS: frozenset[str] = frozenset({
 })
 
 
+# Intents where OTC self-care is clinically meaningful. A concluding answer for
+# one of these ends with an `otc_medications` block (the model still omits it
+# when no safe OTC option fits). Pure-education intents are intentionally absent.
+_OTC_ELIGIBLE_INTENTS: frozenset[str] = frozenset({
+    "symptom_query", "diagnosis_query", "followup_query",
+    "treatment_query", "medication_query", "risk_assessment",
+})
+
+
 _SUBSTANTIVE_QUERY_TYPES: frozenset[str] = frozenset({
     # symptom / diagnostic / risk
     "symptom_query", "diagnosis_query", "risk_assessment",
@@ -426,6 +435,7 @@ _DECISION_BLOCK_PLAN: str = (
     "{followups}"
     "- next_steps: concrete ACTIONS given the verdict (what to do / take / "
     "monitor now) — actions only, never a question.\n"
+    "{otc}"
     "Do NOT emit a `summary` block on a decision turn — the `decision` block IS "
     "the headline. Keep it tight; no restating the question."
 )
@@ -435,6 +445,23 @@ _FOLLOWUP_LINE: str = (
     "materially change the differential or plan. Each question must carry its "
     "reasoning in one clause. Omit this block entirely if nothing would change "
     "the plan.\n"
+)
+
+# OTC recommendation line — appended ONLY on a concluding answer (assessment /
+# decision turn), never while still gathering. India-only service, so the model
+# names commonly available Indian OTC products and must never suggest
+# prescription-only medicines.
+_OTC_LINE: str = (
+    "- otc_medications: LAST block. Recommend safe over-the-counter (OTC) "
+    "self-care medicines that genuinely help THIS problem — India-available "
+    "products only (e.g. paracetamol, ORS, cetirizine, antacids, oral "
+    "rehydration salts, antiseptic cream). For each give `name`, `purpose` "
+    "(what it helps, plain English), and — when useful — `dosage` (typical "
+    "adult OTC dose) and `caution` (key caveat / when to avoid). "
+    "NEVER list prescription-only drugs, antibiotics, or anything needing a "
+    "doctor's script. OMIT this block entirely when no OTC option is "
+    "appropriate, when the safe answer is to seek in-person care, or for a "
+    "purely educational question."
 )
 
 
@@ -546,7 +573,9 @@ def layer_block_plan(
     # clarifier). Critical risk above already took precedence, so safety is
     # unchanged.
     if (response_mode or "").strip().lower() == "binary_decision":
-        return _DECISION_BLOCK_PLAN.format(followups=followups)
+        # A decision turn is itself a concluding answer, so it always offers OTC
+        # self-care (the plan tells the model to omit it when unsafe/N-A).
+        return _DECISION_BLOCK_PLAN.format(followups=followups, otc=_OTC_LINE + "\n")
 
     # GATHERING turn: still interviewing a triage case and NOT yet time to
     # consolidate. The turn is just the one question — NO per-turn summary /
@@ -568,6 +597,12 @@ def layer_block_plan(
     plan = _INTENT_BLOCK_PLANS.get(classified, _DEFAULT_BLOCK_PLAN).format(
         followups=followups
     )
+    # On a CONCLUDING answer (assessment / closing turn) for a symptom-like
+    # intent, end with OTC self-care recommendations. Educational-only intents
+    # (explanations, prognosis, procedures, comparisons) don't get it — the line
+    # itself also tells the model to omit when self-care isn't appropriate.
+    if (terminal or consolidate) and classified in _OTC_ELIGIBLE_INTENTS:
+        plan = plan + _OTC_LINE + "\n"
     # Forbid follow-ups whenever they aren't explicitly requested this turn —
     # closing turns AND turns where the gatekeeper didn't flag one. Without this,
     # the model volunteers a follow_up_questions block even when unwanted.
@@ -625,9 +660,12 @@ def layer_output_contract() -> str:
         "- Use the exact schema shape: summary -> {\"type\":\"summary\",\"data\":{\"text\":\"...\"}}; "
         "next_steps -> {\"type\":\"next_steps\",\"data\":{\"steps\":[\"...\"]}}; "
         "condition_list -> {\"type\":\"condition_list\",\"data\":{\"conditions\":[{\"name\":\"...\",\"likelihood\":\"most likely\",\"description\":\"...\"}]}}; "
-        "decision -> {\"type\":\"decision\",\"data\":{\"verdict\":\"yes\",\"rationale\":\"...\"}}.\n"
+        "decision -> {\"type\":\"decision\",\"data\":{\"verdict\":\"yes\",\"rationale\":\"...\"}}; "
+        "otc_medications -> {\"type\":\"otc_medications\",\"data\":{\"medications\":[{\"name\":\"Paracetamol\",\"purpose\":\"...\",\"dosage\":\"...\",\"caution\":\"...\"}]}}.\n"
         "- `decision.verdict` MUST be exactly one of: yes, no, possibly, "
         "seek_urgent_care, insufficient_information.\n"
+        "- `otc_medications` lists ONLY over-the-counter medicines; `name` and "
+        "`purpose` are required, `dosage`/`caution` optional.\n"
         "- Do not rename fields, add extra properties, or omit required fields.\n"
         "- `warning.severity` MUST be exactly one of: info, caution, critical. "
         "Every list field must be non-empty.\n"
