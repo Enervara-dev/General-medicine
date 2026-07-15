@@ -203,6 +203,7 @@ def layer_tool_instructions(
     *,
     consolidate: bool = False,
     terminal: bool = False,
+    response_mode: str = "generative_answer",
 ) -> str:
     # Format-AGNOSTIC consultation flow + questioning strategy. Shared by the
     # prose and block paths, so it must not mention JSON/blocks — those
@@ -231,6 +232,25 @@ def layer_tool_instructions(
             "questions, but append NO follow-up question of your own.\n"
             "- Never re-ask or echo anything already in memory or the "
             "conversation; treat it as known and build on it."
+        )
+    # BINARY DECISION: the user wants a verdict, not an interview. Don't slot-
+    # fill — commit to yes/no/possibly/seek-urgent-care now, or return
+    # insufficient_information + the single fact you'd need.
+    if (response_mode or "").strip().lower() == "binary_decision":
+        return (
+            "CONSULTATION FLOW — DECISION MODE. The user is asking for a direct "
+            "clinical verdict (a yes/no/should-I question), not an explanation "
+            "or an interview.\n"
+            "- Reach a verdict from what you already know plus established "
+            "medical knowledge. Do NOT run a history-taking interview.\n"
+            "- Ask a question ONLY if a SINGLE specific fact genuinely flips the "
+            "verdict (e.g. pregnancy status when a drug's safety depends on it, "
+            "or an allergy that would contraindicate it). Otherwise commit.\n"
+            "- If that one fact is missing and decisive, the verdict is "
+            "'insufficient information' and you name exactly what you'd need — "
+            "never a vague 'consult a doctor' dodge.\n"
+            "- Lead with the decision, keep the reasoning tight, and give the "
+            "specific safe action that follows from it."
         )
     return (
         "CONSULTATION FLOW — gather efficiently, consolidate at the right moments.\n"
@@ -378,6 +398,38 @@ _DEFAULT_BLOCK_PLAN: str = (
     "- next_steps: one concrete next step."
 )
 
+# Binary-decision plan. The `decision` block leads the stream so the verdict is
+# committed BEFORE any reasoning — the rationale is generated only after the
+# outcome is fixed. `{followups}` expands only when the verdict is genuinely
+# insufficient_information and one clarifier would change the outcome.
+_DECISION_BLOCK_PLAN: str = (
+    "BLOCK PLAN — BINARY CLINICAL DECISION. The user wants a DIRECT verdict, "
+    "not an essay. Emit the `decision` block FIRST, then support it.\n"
+    "- decision (MUST be the first block): pick ONE `verdict` from exactly "
+    "these values — \"yes\", \"no\", \"possibly\", \"seek_urgent_care\", "
+    "\"insufficient_information\" — and commit to it. Then write `rationale`: "
+    "2–4 plain sentences justifying THAT verdict (mechanism + the specific "
+    "facts that decided it). Decide the verdict FIRST; the rationale explains a "
+    "conclusion you have already reached, never hedges toward a different one.\n"
+    "  · Use \"yes\"/\"no\" when the evidence is clear (e.g. a well-known safe or "
+    "unsafe drug combination).\n"
+    "  · Use \"possibly\" when it genuinely depends on a condition you then name "
+    "in the rationale.\n"
+    "  · Use \"seek_urgent_care\" when the safe answer is prompt in-person "
+    "evaluation — pair it with a `warning`.\n"
+    "  · Use \"insufficient_information\" ONLY when you truly cannot decide "
+    "without one specific fact; name that fact in the rationale.\n"
+    "- key_points: the few facts that actually drive the verdict (doses, "
+    "timing, interaction mechanism, the discriminating symptom).\n"
+    "- warning: any red flag or contraindication that changes urgency, with a "
+    "severity. Required when the verdict is \"seek_urgent_care\".\n"
+    "{followups}"
+    "- next_steps: concrete ACTIONS given the verdict (what to do / take / "
+    "monitor now) — actions only, never a question.\n"
+    "Do NOT emit a `summary` block on a decision turn — the `decision` block IS "
+    "the headline. Keep it tight; no restating the question."
+)
+
 _FOLLOWUP_LINE: str = (
     "- follow_up_questions: at most ONE high-signal question whose answer would "
     "materially change the differential or plan. Each question must carry its "
@@ -444,6 +496,7 @@ def layer_block_plan(
     terminal: bool = False,
     allow_followups: bool = True,
     consolidate: bool = False,
+    response_mode: str = "generative_answer",
 ) -> str:
     """
     BLOCK response plan. Names the target block types per intent (formatting
@@ -486,6 +539,14 @@ def layer_block_plan(
             "Emit one `summary` block, 1–2 sentences, matching their register. "
             "No condition_list, no warning, no follow_up_questions."
         )
+
+    # BINARY DECISION: the gatekeeper flagged the user wants a direct verdict.
+    # This overrides the triage gathering flow — rather than slot-fill, we
+    # commit to a verdict now (or return `insufficient_information` + one
+    # clarifier). Critical risk above already took precedence, so safety is
+    # unchanged.
+    if (response_mode or "").strip().lower() == "binary_decision":
+        return _DECISION_BLOCK_PLAN.format(followups=followups)
 
     # GATHERING turn: still interviewing a triage case and NOT yet time to
     # consolidate. The turn is just the one question — NO per-turn summary /
@@ -563,7 +624,10 @@ def layer_output_contract() -> str:
         f"- Every line's `type` must be one of: {types_line}.\n"
         "- Use the exact schema shape: summary -> {\"type\":\"summary\",\"data\":{\"text\":\"...\"}}; "
         "next_steps -> {\"type\":\"next_steps\",\"data\":{\"steps\":[\"...\"]}}; "
-        "condition_list -> {\"type\":\"condition_list\",\"data\":{\"conditions\":[{\"name\":\"...\",\"likelihood\":\"most likely\",\"description\":\"...\"}]}}.\n"
+        "condition_list -> {\"type\":\"condition_list\",\"data\":{\"conditions\":[{\"name\":\"...\",\"likelihood\":\"most likely\",\"description\":\"...\"}]}}; "
+        "decision -> {\"type\":\"decision\",\"data\":{\"verdict\":\"yes\",\"rationale\":\"...\"}}.\n"
+        "- `decision.verdict` MUST be exactly one of: yes, no, possibly, "
+        "seek_urgent_care, insufficient_information.\n"
         "- Do not rename fields, add extra properties, or omit required fields.\n"
         "- `warning.severity` MUST be exactly one of: info, caution, critical. "
         "Every list field must be non-empty.\n"
@@ -586,6 +650,7 @@ def compose_system_prompt(
     allow_followups: bool = True,
     output_format: str = "prose",
     consolidate: bool = False,
+    response_mode: str = "generative_answer",
     tools: list | None = None,
 ) -> str:
     """
@@ -628,6 +693,7 @@ def compose_system_prompt(
                 terminal=terminal,
                 allow_followups=allow_followups,
                 consolidate=consolidate,
+                response_mode=response_mode,
             ),
             layer_output_contract(),  # always LAST in block mode
         ]
@@ -640,7 +706,9 @@ def compose_system_prompt(
         layer_runtime_modifiers(risk_level=risk_level, has_name=has_name),
         layer_session_state_instructions(),
         layer_retrieval_grounding(),
-        layer_tool_instructions(tools, consolidate=consolidate, terminal=terminal),
+        layer_tool_instructions(
+            tools, consolidate=consolidate, terminal=terminal, response_mode=response_mode
+        ),
         *format_layers,
     ]
     return "\n\n".join(layer for layer in layers if layer)

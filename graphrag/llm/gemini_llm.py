@@ -90,6 +90,7 @@ USER QUESTION: {query_text}
         terminal: bool = False,
         allow_followups: bool = True,
         consolidate: bool = False,
+        response_mode: str = "generative_answer",
     ):
         """
         Streaming Gemini answer as validated UI blocks (NDJSON STAGE-4 path).
@@ -112,6 +113,7 @@ USER QUESTION: {query_text}
             terminal=terminal,
             allow_followups=allow_followups,
             consolidate=consolidate,
+            response_mode=response_mode,
             output_format="blocks",
         )
 

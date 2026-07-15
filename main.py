@@ -28,6 +28,9 @@ def _render_block_human(block) -> str:
             desc = f" — {c.description}" if c.description else ""
             lines.append(f"  • {c.name}{like}{desc}")
         return "\n".join(lines)
+    if t == "decision":
+        verdict = d.verdict.replace("_", " ").upper()
+        return f"➡️  DECISION: {verdict}\n{d.rationale}"
     if t == "warning":
         return f"⚠️  [{d.severity.upper()}] {d.text}"
     if t == "next_steps":

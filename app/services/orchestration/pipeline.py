@@ -535,6 +535,7 @@ class AsyncOrchestrator:
             # On a consolidate/closing turn, deliver the assessment — don't tack
             # on another question.
             allow_followups = needs_followup and not terminal and not consolidate
+            response_mode = str((analysis or {}).get("response_mode") or "generative_answer")
 
             rewritten = (analysis or {}).get("rewritten_query")
             active_query = (
@@ -606,6 +607,7 @@ class AsyncOrchestrator:
                 terminal=terminal or consolidate,
                 allow_followups=allow_followups,
                 consolidate=consolidate,
+                response_mode=response_mode,
                 output_format="blocks",
             )
 
@@ -810,6 +812,7 @@ def _compose_answer_prompts(
     allow_followups: bool = True,
     output_format: str = "prose",
     consolidate: bool = False,
+    response_mode: str = "generative_answer",
     media_context: str = "",
 ) -> tuple[str, str]:
     """
@@ -834,6 +837,7 @@ def _compose_answer_prompts(
         terminal=terminal,
         allow_followups=allow_followups,
         consolidate=consolidate,
+        response_mode=response_mode,
         output_format=output_format,
     )
 

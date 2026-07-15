@@ -74,6 +74,26 @@ class ConditionListData(BaseModel):
     conditions: list[Condition] = Field(min_length=1)
 
 
+# The five clinical-decision outcomes a binary_decision turn may commit to.
+# Lowercase snake_case on the wire; the frontend maps to display labels
+# ("yes" -> YES, "seek_urgent_care" -> SEEK URGENT CARE, ...).
+DecisionVerdict = Literal[
+    "yes",
+    "no",
+    "possibly",
+    "seek_urgent_care",
+    "insufficient_information",
+]
+
+
+class DecisionData(BaseModel):
+    model_config = _STRICT
+    # The verdict is committed FIRST; the rationale is the reasoning produced
+    # only after the decision is fixed (see the binary_decision block plan).
+    verdict: DecisionVerdict
+    rationale: str = Field(min_length=1)
+
+
 # ---------------------------------------------------------------------------
 # Block envelopes (type-discriminated)
 # ---------------------------------------------------------------------------
@@ -120,6 +140,12 @@ class ConditionListBlock(BaseModel):
     data: ConditionListData
 
 
+class DecisionBlock(BaseModel):
+    model_config = _STRICT
+    type: Literal["decision"]
+    data: DecisionData
+
+
 # Discriminated union — validate one line as exactly one of these by its `type`.
 Block = Annotated[
     Union[
@@ -130,6 +156,7 @@ Block = Annotated[
         WarningBlock,
         NextStepsBlock,
         ConditionListBlock,
+        DecisionBlock,
     ],
     Field(discriminator="type"),
 ]
@@ -147,6 +174,7 @@ BLOCK_TYPES: tuple[str, ...] = (
     "warning",
     "next_steps",
     "condition_list",
+    "decision",
 )
 
 
@@ -171,6 +199,8 @@ __all__ = [
     "NextStepsData",
     "ConditionListData",
     "Condition",
+    "DecisionData",
+    "DecisionVerdict",
     # envelopes
     "SummaryBlock",
     "KeyPointsBlock",
@@ -179,4 +209,5 @@ __all__ = [
     "WarningBlock",
     "NextStepsBlock",
     "ConditionListBlock",
+    "DecisionBlock",
 ]

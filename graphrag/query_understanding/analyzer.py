@@ -116,6 +116,33 @@ Set answer_style to reflect what the user actually wants from the answer:
 When unsure, default to "factual".
  
 ==================================================
+RESPONSE MODE  (always set) — DECISION vs EXPLANATION
+=====================================================
+Set response_mode to reflect the SHAPE of answer the user is really after:
+
+* "binary_decision" -> the user wants a DIRECT clinical verdict, not an essay.
+  The natural answer is one of: YES / NO / POSSIBLY / SEEK URGENT CARE /
+  INSUFFICIENT INFORMATION, followed by a short reason. Choose this when the
+  message is phrased as a decision or a yes/no safety question, e.g.:
+    - "Can I take ibuprofen with paracetamol?"
+    - "Is 102°F fever dangerous?"
+    - "Should I go to the ER for this chest pain?"
+    - "Is this medication safe during pregnancy?"
+    - "Can dehydration cause dizziness?"
+    - "Do these symptoms need urgent attention?"
+  Cue words: can I / should I / is it safe / is it dangerous / is it normal /
+  do I need to / is X ok with Y / will X cause Y.
+* "generative_answer" -> the user wants an explanation, overview, differential,
+  interpretation, or step-by-step guidance (the default). "Explain ...",
+  "what could be causing ...", "how do I manage ...", "what are the symptoms of
+  ...", open-ended symptom reports mid-consultation.
+
+When a question is BOTH a decision and needs a real explanation, prefer
+"binary_decision" if a clear verdict is the user's primary expectation;
+otherwise "generative_answer". When unsure, default to "generative_answer".
+Safety is unaffected: an emergency is still emergency regardless of mode.
+
+==================================================
 RESPONSE DEPTH  (always set)
 ==============
 Estimate how much answer the request warrants:
@@ -285,6 +312,7 @@ OUTPUT FORMAT  (STRICT JSON only)
 "original_query": "",
 "rewritten_query": "",
 "answer_style": "factual" | "educational",
+"response_mode": "binary_decision" | "generative_answer",
 "response_depth": "short" | "medium" | "long",
 "leading_diagnosis": "",
 "diagnostic_confidence": 0,

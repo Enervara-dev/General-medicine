@@ -356,6 +356,7 @@ class GraphRAGPipeline:
         needs_followup = bool((analysis or {}).get("needs_followup"))
         # On a consolidate/closing turn, deliver the assessment — don't ask again.
         allow_followups = needs_followup and not terminal and not consolidate
+        response_mode = str((analysis or {}).get("response_mode") or "generative_answer")
 
         rewritten = (analysis or {}).get("rewritten_query")
         if rewritten and rewritten.strip() and rewritten != query_text:
@@ -439,6 +440,7 @@ class GraphRAGPipeline:
             terminal=terminal or consolidate,
             allow_followups=allow_followups,
             consolidate=consolidate,
+            response_mode=response_mode,
         )
         for block in block_stream:
             emitted.append(block)

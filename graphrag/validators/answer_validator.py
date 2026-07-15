@@ -44,6 +44,24 @@ _ALLOWED_DATA_FIELDS: dict[str, set[str]] = {
     "warning": {"text", "severity"},
     "next_steps": {"steps"},
     "condition_list": {"conditions"},
+    "decision": {"verdict", "rationale"},
+}
+
+# The five verdicts the decision block accepts, plus common aliases a model
+# emits (uppercase / spaced / "urgent" / "unsure"). Anything unmapped is left
+# as-is and dropped by strict validation.
+_VERDICT_ALIASES: dict[str, str] = {
+    "yes": "yes", "y": "yes", "safe": "yes", "true": "yes",
+    "no": "no", "n": "no", "unsafe": "no", "false": "no",
+    "possibly": "possibly", "maybe": "possibly", "possible": "possibly",
+    "depends": "possibly", "sometimes": "possibly",
+    "seek_urgent_care": "seek_urgent_care", "urgent": "seek_urgent_care",
+    "seek urgent care": "seek_urgent_care", "emergency": "seek_urgent_care",
+    "er": "seek_urgent_care", "seek care": "seek_urgent_care",
+    "insufficient_information": "insufficient_information",
+    "insufficient information": "insufficient_information",
+    "insufficient": "insufficient_information", "unknown": "insufficient_information",
+    "unsure": "insufficient_information", "need more info": "insufficient_information",
 }
 
 # List-valued data fields — empty/blank entries are pruned before validation.
@@ -94,6 +112,13 @@ def _repair_obj(obj: object) -> dict | None:
     if btype == "warning":
         sev = str(clean.get("severity", "")).strip().lower()
         clean["severity"] = _SEVERITY_ALIASES.get(sev, "caution")
+
+    if btype == "decision":
+        verdict = str(clean.get("verdict", "")).strip().lower()
+        # Map the model's phrasing onto a canonical verdict; when it's truly
+        # unrecognisable, fall back to the safest non-committal outcome rather
+        # than dropping the whole decision block.
+        clean["verdict"] = _VERDICT_ALIASES.get(verdict, "insufficient_information")
 
     for field in _LIST_FIELDS:
         val = clean.get(field)
@@ -314,4 +339,6 @@ def render_blocks_text(blocks: list[Block]) -> str:
                 if c.description:
                     bits.append(f"— {c.description}")
                 parts.append(" ".join(bits))
+        elif t == "decision":
+            parts.append(f"[{d.verdict.replace('_', ' ').upper()}] {d.rationale}")
     return "\n".join(parts).strip()

@@ -64,7 +64,8 @@ export type Block =
   | { type: "follow_up_questions"; data: { questions: string[] } }   // ≤ 1 question
   | { type: "warning";             data: { text: string; severity: "info" | "caution" | "critical" } }
   | { type: "next_steps";          data: { steps: string[] } }
-  | { type: "condition_list";      data: { conditions: { name: string; likelihood: string | null; description: string | null }[] } };
+  | { type: "condition_list";      data: { conditions: { name: string; likelihood: string | null; description: string | null }[] } }
+  | { type: "decision";            data: { verdict: "yes" | "no" | "possibly" | "seek_urgent_care" | "insufficient_information"; rationale: string } };
 
 export interface ChatTurn { query: string; session_id?: string; user_id?: string }
 
@@ -113,13 +114,14 @@ async function sendTurn(query: string) {
 }
 ```
 
-### Block → UI rendering spec (implement all seven)
+### Block → UI rendering spec (implement all eight)
 
 Render blocks **in the order received** (don't reorder by type). `data` shapes are exact — no other fields appear.
 
 | `type` | `data` | Render as |
 |---|---|---|
 | `summary` | `{ text }` | The main assistant message text (a chat bubble / paragraph). Usually the first block. |
+| `decision` | `{ verdict: "yes"\|"no"\|"possibly"\|"seek_urgent_care"\|"insufficient_information", rationale }` | A **verdict headline** — a colored pill/banner with the display label (map `"seek_urgent_care"` → "SEEK URGENT CARE", `"insufficient_information"` → "NEED MORE INFO", else uppercase the word) followed by the `rationale` text. Leads decision-type turns instead of a `summary`. Suggested colors: `yes` green, `no` red, `possibly` amber, `seek_urgent_care` prominent red, `insufficient_information` neutral. |
 | `key_points` | `{ points: string[] }` | A bulleted list. |
 | `bullet_list` | `{ title: string\|null, items: string[] }` | Optional heading (`title`) + bulleted `items`. |
 | `condition_list` | `{ conditions: [{ name, likelihood: string\|null, description: string\|null }] }` | "Possible causes" — one card/row per condition: **name**, a `likelihood` badge (`"most likely"`/`"possible"`/`"less likely"` — may be null), and `description` (may be null). |
@@ -411,10 +413,12 @@ Each line is `{"type": ..., "data": {...}}`. Block types:
 | `warning` | `{ text, severity: "info"\|"caution"\|"critical" }` |
 | `next_steps` | `{ steps: string[] }` |
 | `condition_list` | `{ conditions: [{ name, likelihood: string\|null, description: string\|null }] }` |
+| `decision` | `{ verdict: "yes"\|"no"\|"possibly"\|"seek_urgent_care"\|"insufficient_information", rationale }` |
 
 Field notes:
 - `warning.severity` is one of `"info" | "caution" | "critical"` — use it to pick styling (subtle / amber / prominent). No other values occur.
 - `condition_list[].likelihood`, when present, is human text like `"most likely" | "possible" | "less likely"` — render as a label/badge; it may be `null`.
+- `decision.verdict` is one of exactly five values — render as a colored verdict pill/banner. On a decision-type turn this block leads (no `summary`); the rest of the turn (`key_points` / `warning` / `next_steps`) supports it. A `seek_urgent_care` verdict always comes with a `critical` `warning`.
 - `follow_up_questions.questions` never has more than one item (see guarantees below).
 - Blocks arrive in a sensible reading order (e.g. `summary` first, `next_steps`/`follow_up_questions` last). Render them in the order received; don't reorder by type.
 
