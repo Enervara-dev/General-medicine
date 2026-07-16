@@ -78,12 +78,30 @@ def test_valid_block_is_untouched_by_repair_path():
 # ---------------------------------------------------------------------------
 
 
-def test_all_malformed_stream_yields_fallback_summary():
-    tokens = iter(['not json at all\n', '{"type":"nope","data":{}}\n'])
+def test_empty_stream_yields_fallback_summary():
+    # Nothing salvageable (only blank/whitespace) → the generic apology summary.
+    tokens = iter(['   \n', '\n'])
     blocks = list(iter_blocks(tokens, terminal=False))
     assert len(blocks) == 1
     assert blocks[0].type == "summary"
     assert "couldn't" in blocks[0].data.text.lower()
+
+
+def test_prose_question_is_salvaged_into_followup():
+    # The model ignored the NDJSON contract and returned a plain question. We
+    # salvage it into a follow_up_questions block rather than show the apology.
+    tokens = iter(["Could you tell me how long you've had the fever? Thanks."])
+    blocks = list(iter_blocks(tokens, terminal=False))
+    assert [b.type for b in blocks] == ["follow_up_questions"]
+    # Trailing filler after the last '?' is trimmed.
+    assert blocks[0].data.questions == ["Could you tell me how long you've had the fever?"]
+
+
+def test_prose_statement_is_salvaged_into_summary_on_terminal():
+    tokens = iter(["This looks like a routine viral fever that should settle soon."])
+    blocks = list(iter_blocks(tokens, terminal=True))
+    assert [b.type for b in blocks] == ["summary"]
+    assert "viral fever" in blocks[0].data.text
 
 
 def test_followup_block_capped_to_one_question():

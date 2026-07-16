@@ -237,6 +237,50 @@ def _fallback_block() -> Block:
     return SummaryBlock(type="summary", data=SummaryData(text=_FALLBACK_TEXT))
 
 
+def _salvage_prose(raw: str, *, terminal: bool) -> Block | None:
+    """
+    Rescue a plain-prose answer into a real block.
+
+    The model sometimes ignores the NDJSON contract on thin turns and returns a
+    normal sentence instead of a JSON block. Rather than discard that (useful)
+    text for the generic apology, wrap it: a clarifying question becomes a
+    ``follow_up_questions`` block; anything else becomes a ``summary``. Returns
+    None when there's nothing usable (empty, or still-JSON-looking garbage).
+    """
+    text = (raw or "").strip()
+    # Strip a markdown code fence the model may have wrapped the text in.
+    if text.startswith("```"):
+        text = text.strip("`").strip()
+        if text[:4].lower() == "json":
+            text = text[4:].strip()
+    if not text:
+        return None
+    # Genuine (but unparseable) JSON should not be masqueraded as prose — the
+    # object-level recovery already had its chance; bail to the generic fallback.
+    if text[:1] in "{[":
+        return None
+
+    from graphrag.schemas.blocks import (
+        FollowUpQuestionsBlock,
+        FollowUpQuestionsData,
+        SummaryBlock,
+        SummaryData,
+    )
+
+    # A clarifying question on a non-closing turn → a single follow-up chip.
+    # Keep only up to the last '?' so trailing filler doesn't ride along.
+    if not terminal and "?" in text:
+        question = text[: text.rfind("?") + 1].strip()
+        if question:
+            logger.info("answer prose salvaged into a follow_up_questions block")
+            return FollowUpQuestionsBlock(
+                type="follow_up_questions",
+                data=FollowUpQuestionsData(questions=[question]),
+            )
+    logger.info("answer prose salvaged into a summary block")
+    return SummaryBlock(type="summary", data=SummaryData(text=text))
+
+
 def iter_blocks(token_stream: Iterable[str], *, terminal: bool) -> Iterator[Block]:
     """
     Sync: turn a token stream into a stream of validated Blocks (partial recovery).
@@ -245,11 +289,13 @@ def iter_blocks(token_stream: Iterable[str], *, terminal: bool) -> Iterator[Bloc
     after repair), a fallback summary is emitted so the client never renders nothing.
     """
     buffer = ""
+    raw_all = ""
     yielded = False
     for token in token_stream:
         if not token:
             continue
         buffer += token
+        raw_all += token
         objects, remainder = _extract_complete_objects(buffer)
         if objects:
             for obj in objects:
@@ -266,8 +312,14 @@ def iter_blocks(token_stream: Iterable[str], *, terminal: bool) -> Iterator[Bloc
         yield kept
 
     if not yielded:
-        logger.warning("answer stream produced no valid blocks — emitting fallback summary")
-        yield _fallback_block()
+        # The model returned no valid block — salvage plain prose into one before
+        # resorting to the generic apology.
+        salvaged = _keep(_salvage_prose(raw_all, terminal=terminal), terminal=terminal)
+        if salvaged is not None:
+            yield salvaged
+        else:
+            logger.warning("answer stream produced no valid blocks — emitting fallback summary")
+            yield _fallback_block()
 
 
 async def aiter_blocks(token_stream: AsyncIterator[str], *, terminal: bool) -> AsyncIterator[Block]:
@@ -277,11 +329,13 @@ async def aiter_blocks(token_stream: AsyncIterator[str], *, terminal: bool) -> A
     Guarantees at least one valid block (see ``iter_blocks``).
     """
     buffer = ""
+    raw_all = ""
     yielded = False
     async for token in token_stream:
         if not token:
             continue
         buffer += token
+        raw_all += token
         objects, remainder = _extract_complete_objects(buffer)
         if objects:
             for obj in objects:
@@ -297,8 +351,12 @@ async def aiter_blocks(token_stream: AsyncIterator[str], *, terminal: bool) -> A
         yield kept
 
     if not yielded:
-        logger.warning("answer stream produced no valid blocks — emitting fallback summary")
-        yield _fallback_block()
+        salvaged = _keep(_salvage_prose(raw_all, terminal=terminal), terminal=terminal)
+        if salvaged is not None:
+            yield salvaged
+        else:
+            logger.warning("answer stream produced no valid blocks — emitting fallback summary")
+            yield _fallback_block()
 
 
 def block_to_line(block: Block) -> str:
