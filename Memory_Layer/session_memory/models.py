@@ -139,6 +139,13 @@ class SessionMemory(BaseModel):
     # A rolling prose summary of older turns (populated by the summarizer)
     summary:      str               = ""
 
+    # Sticky flag: flips True the first time the consultation reaches a
+    # concluded answer (gathering loop complete + final assessment delivered).
+    # Once set it stays set for the session, so the "Show this to your doctor"
+    # affordance remains available even if the patient keeps chatting. Drives
+    # the doctor-facing SOAP note (generated on demand from latest context).
+    doctor_summary_ready: bool      = False
+
     # Structured medical state extracted / updated each turn
     state:        StructuredState   = Field(default_factory=StructuredState)
 

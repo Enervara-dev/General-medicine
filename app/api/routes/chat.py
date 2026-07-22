@@ -18,7 +18,14 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, s
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import ContainerDep
-from app.schemas.chat import ChatRequest, ChatResponse, ImageChatResponse, MediaInfo
+from app.schemas.chat import (
+    ChatRequest,
+    ChatResponse,
+    ImageChatResponse,
+    MediaInfo,
+    SoapNote,
+    SoapRequest,
+)
 from app.services.media import MediaArtifact, MediaValidationError
 
 logger = logging.getLogger(__name__)
@@ -65,6 +72,7 @@ async def chat(req: ChatRequest, request: Request, ctx: ContainerDep) -> ChatRes
         timing_ms=result.timing_ms,
         routing=result.routing,
         followup_questions=result.followup_questions,
+        show_doctor_summary=result.show_doctor_summary,
     )
 
 
@@ -126,7 +134,42 @@ async def chat_image(
         timing_ms=result.timing_ms,
         routing=result.routing,
         followup_questions=result.followup_questions,
+        show_doctor_summary=result.show_doctor_summary,
         media=_media_info(media_result.attachment.artifact),
+    )
+
+
+@router.post("/chat/soap", response_model=SoapNote)
+async def chat_soap(req: SoapRequest, request: Request, ctx: ContainerDep) -> SoapNote:
+    """
+    Generate a fresh doctor-facing SOAP note for an existing session.
+
+    Triggered on demand ("Show this to your doctor"). The note is regenerated
+    every call from the latest full conversation context, so any new patient
+    information is reflected. Strictly grounded in the conversation — missing
+    clinical information is named in `unavailable`, never fabricated.
+    """
+    from datetime import datetime, timezone
+
+    from app.services.memory.session import load_session
+    from app.services.soap import generate_soap_async
+
+    request_id = _request_id(request)
+    bundle = await load_session(ctx.session_manager, req.session_id)
+    if bundle.session.total_messages == 0:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No conversation found for this session_id.",
+        )
+
+    sections = await generate_soap_async(
+        bundle.session, model=ctx.settings.ANSWER_MODEL
+    )
+    return SoapNote(
+        **sections,
+        session_id=req.session_id,
+        request_id=request_id,
+        generated_at=datetime.now(tz=timezone.utc).isoformat(),
     )
 
 

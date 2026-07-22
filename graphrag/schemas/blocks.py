@@ -107,6 +107,13 @@ class OtcMedicationsData(BaseModel):
     medications: list[OtcMedication] = Field(min_length=1)
 
 
+class AnswerStateData(BaseModel):
+    model_config = _STRICT
+    # True once the consultation has reached a concluded answer — the client
+    # uses it to reveal the "Show this to your doctor" (SOAP) affordance.
+    show_doctor_summary: bool
+
+
 # ---------------------------------------------------------------------------
 # Block envelopes (type-discriminated)
 # ---------------------------------------------------------------------------
@@ -165,6 +172,12 @@ class OtcMedicationsBlock(BaseModel):
     data: OtcMedicationsData
 
 
+class AnswerStateBlock(BaseModel):
+    model_config = _STRICT
+    type: Literal["answer_state"]
+    data: AnswerStateData
+
+
 # Discriminated union — validate one line as exactly one of these by its `type`.
 Block = Annotated[
     Union[
@@ -177,6 +190,7 @@ Block = Annotated[
         ConditionListBlock,
         DecisionBlock,
         OtcMedicationsBlock,
+        AnswerStateBlock,
     ],
     Field(discriminator="type"),
 ]
@@ -196,6 +210,7 @@ BLOCK_TYPES: tuple[str, ...] = (
     "condition_list",
     "decision",
     "otc_medications",
+    "answer_state",
 )
 
 
@@ -224,6 +239,7 @@ __all__ = [
     "DecisionVerdict",
     "OtcMedication",
     "OtcMedicationsData",
+    "AnswerStateData",
     # envelopes
     "SummaryBlock",
     "KeyPointsBlock",
@@ -234,4 +250,5 @@ __all__ = [
     "ConditionListBlock",
     "DecisionBlock",
     "OtcMedicationsBlock",
+    "AnswerStateBlock",
 ]

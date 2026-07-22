@@ -57,6 +57,7 @@ class ChatResult:
     timing_ms: dict[str, int] = field(default_factory=dict)
     routing: dict[str, Any] = field(default_factory=dict)
     followup_questions: list[str] = field(default_factory=list)
+    show_doctor_summary: bool = False
 
 
 class AsyncOrchestrator:
@@ -127,6 +128,16 @@ class AsyncOrchestrator:
             )
 
         followup_questions = self._extract_followups(analysis)
+
+        # A concluded turn (gathering done / confident) trips the sticky
+        # doctor-summary flag so /chat clients can offer the SOAP export.
+        from graphrag.domain.messages import is_terminal_turn
+
+        elapsed = session.total_messages
+        if is_terminal_turn(turn_count=elapsed, analysis=analysis) or _should_consolidate(
+            wm, analysis, self._c.settings, total_messages=elapsed
+        ):
+            session.doctor_summary_ready = True
 
         # Rewritten query (if analyzer suggested one)
         rewritten = (analysis or {}).get("rewritten_query")
@@ -258,6 +269,7 @@ class AsyncOrchestrator:
                 "graph_hops": graph_hops,
             },
             followup_questions=followup_questions,
+            show_doctor_summary=session.doctor_summary_ready,
         )
 
     # ------------------------------------------------------------------
@@ -621,6 +633,14 @@ class AsyncOrchestrator:
                 emitted.append(block)
                 yield block
 
+            # A concluded answer (gathering done + final assessment delivered)
+            # flips the sticky doctor-summary flag. Emit a trailing control block
+            # so the client can reveal the "Show this to your doctor" affordance.
+            # It is NOT appended to `emitted` — control state never enters memory.
+            if terminal or consolidate:
+                session.doctor_summary_ready = True
+            yield _answer_state_block(session.doctor_summary_ready)
+
             if user_id and self._c.episodic is not None:
                 asyncio.create_task(self._ingest_episodic_safe(user_id=user_id, utterance=query))
 
@@ -750,6 +770,16 @@ def _route_budget(mode: RoutingMode, cfg) -> tuple[int, int, int]:
     if mode == RoutingMode.MEMORY_FIRST:
         return (3, 3, 0)
     return (cfg.vector_top_k, cfg.reranker_top_k, cfg.graph_hops)
+
+
+def _answer_state_block(show_doctor_summary: bool) -> "Block":
+    """Build the trailing control block carrying per-turn answer state."""
+    from graphrag.schemas.blocks import AnswerStateBlock, AnswerStateData
+
+    return AnswerStateBlock(
+        type="answer_state",
+        data=AnswerStateData(show_doctor_summary=show_doctor_summary),
+    )
 
 
 def _canned_message(final_action: str) -> str:

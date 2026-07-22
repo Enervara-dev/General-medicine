@@ -46,6 +46,7 @@ _ALLOWED_DATA_FIELDS: dict[str, set[str]] = {
     "condition_list": {"conditions"},
     "decision": {"verdict", "rationale"},
     "otc_medications": {"medications"},
+    "answer_state": {"show_doctor_summary"},
 }
 
 # The five verdicts the decision block accepts, plus common aliases a model

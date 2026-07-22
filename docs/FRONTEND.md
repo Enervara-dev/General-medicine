@@ -66,7 +66,8 @@ export type Block =
   | { type: "next_steps";          data: { steps: string[] } }
   | { type: "condition_list";      data: { conditions: { name: string; likelihood: string | null; description: string | null }[] } }
   | { type: "decision";            data: { verdict: "yes" | "no" | "possibly" | "seek_urgent_care" | "insufficient_information"; rationale: string } }
-  | { type: "otc_medications";     data: { medications: { name: string; purpose: string; dosage: string | null; caution: string | null }[] } };
+  | { type: "otc_medications";     data: { medications: { name: string; purpose: string; dosage: string | null; caution: string | null }[] } }
+  | { type: "answer_state";        data: { show_doctor_summary: boolean } };   // control block, always last
 
 export interface ChatTurn { query: string; session_id?: string; user_id?: string }
 
@@ -115,7 +116,7 @@ async function sendTurn(query: string) {
 }
 ```
 
-### Block → UI rendering spec (implement all nine)
+### Block → UI rendering spec (implement all nine content blocks + 1 control block)
 
 Render blocks **in the order received** (don't reorder by type). `data` shapes are exact — no other fields appear.
 
@@ -130,6 +131,7 @@ Render blocks **in the order received** (don't reorder by type). `data` shapes a
 | `next_steps` | `{ steps: string[] }` | A "What to do" list (numbered/ordered). Linkify any phone numbers as `tel:`. |
 | `follow_up_questions` | `{ questions: string[] }` (≤1 item) | A single suggested-reply **chip**. Tapping it sends its text as the next turn's `query`. |
 | `otc_medications` | `{ medications: [{ name, purpose, dosage: string\|null, caution: string\|null }] }` | A "Over-the-counter options" card list, shown **last**. One row per medicine: **name** (bold), `purpose` (what it helps), `dosage` badge if present, and `caution` as a subtle warning line if present. These are self-care OTC suggestions only — a good place for a small "not a prescription — check with a pharmacist" disclaimer. |
+| `answer_state` | `{ show_doctor_summary: boolean }` | **Control block, not a message — don't render it.** It's always the **very last** block of every turn. Read `show_doctor_summary`: when `true`, reveal a **"Show this to your doctor"** button that calls `POST /chat/soap` (see below). Once true it stays true for the session. |
 
 ### Guarantees you can build on (don't code defensively around these)
 
@@ -384,11 +386,14 @@ Field rules:
     "session_save": 18,
     "total": 2875
   },
-  "followup_questions": ["How long have you had the chronic asthma?"]
+  "followup_questions": ["How long have you had the chronic asthma?"],
+  "show_doctor_summary": false
 }
 ```
 
 The `followup_questions` array contains **at most one** item — there's a hard cap. Render it as a chip / suggested-reply button if you want; or ignore it.
+
+`show_doctor_summary` is `true` once the consultation has reached a concluded answer (and stays `true` after) — reveal the "Show this to your doctor" button that calls [`POST /chat/soap`](#post-chatsoap--doctor-facing-soap-note). On the block endpoints this same signal arrives as the trailing `answer_state` block instead.
 
 **Safety short-circuits (prose paths).** For a physical emergency or a mental-health crisis, `answer` is a fixed, safety-reviewed message (not a generated one) — an emergency instruction, or an empathetic mental-health message with crisis helplines (Tele-MANAS 14416, KIRAN 1800-599-0019, 112). It's still plain text, so nothing special is required, but you SHOULD linkify phone numbers (`tel:`) and present a crisis message calmly, not as an error. If you want these as structured blocks instead (to style the crisis differently), use `/chat/blocks` — see its "Special canned responses" table.
 
@@ -417,12 +422,14 @@ Each line is `{"type": ..., "data": {...}}`. Block types:
 | `condition_list` | `{ conditions: [{ name, likelihood: string\|null, description: string\|null }] }` |
 | `decision` | `{ verdict: "yes"\|"no"\|"possibly"\|"seek_urgent_care"\|"insufficient_information", rationale }` |
 | `otc_medications` | `{ medications: [{ name, purpose, dosage: string\|null, caution: string\|null }] }` |
+| `answer_state` | `{ show_doctor_summary: boolean }` (control block — always last, don't render) |
 
 Field notes:
 - `warning.severity` is one of `"info" | "caution" | "critical"` — use it to pick styling (subtle / amber / prominent). No other values occur.
 - `condition_list[].likelihood`, when present, is human text like `"most likely" | "possible" | "less likely"` — render as a label/badge; it may be `null`.
 - `decision.verdict` is one of exactly five values — render as a colored verdict pill/banner. On a decision-type turn this block leads (no `summary`); the rest of the turn (`key_points` / `warning` / `next_steps`) supports it. A `seek_urgent_care` verdict always comes with a `critical` `warning`.
 - `otc_medications` appears **only on a concluded answer** (the final assessment or a decision turn), always as the **last** block, and only when safe self-care applies — you won't get it mid-consultation or on educational/emergency turns. `name` + `purpose` are always present; `dosage` and `caution` may be `null`. These are OTC (over-the-counter) suggestions only, never prescriptions.
+- `answer_state` is a **control block, not content** — it's emitted as the final block of every turn and carries `show_doctor_summary`. Don't render it; use it to toggle the "Show this to your doctor" affordance. The flag is **sticky** (once `true`, stays `true` for the session).
 - `follow_up_questions.questions` never has more than one item (see guarantees below).
 - Blocks arrive in a sensible reading order (e.g. `summary` first, `next_steps`/`follow_up_questions` last). Render them in the order received; don't reorder by type.
 
@@ -484,6 +491,34 @@ data: [DONE]
 ```
 
 Parse exactly like the prose SSE stream below (split on `\n\n`, strip `data: `, stop on `[DONE]`), except each payload is a block object — switch on `block.type` and render. Same validation/terminal/canned guarantees as `/chat/blocks`.
+
+### `POST /chat/soap` — doctor-facing SOAP note
+
+Generates a fresh **SOAP note** (Subjective / Objective / Assessment / Plan) for an existing session — the "Show this to your doctor" export. Wire this button to appear when the latest `answer_state` block had `show_doctor_summary: true` (or the `/chat` JSON response had `show_doctor_summary: true`).
+
+- **Regenerated on demand**, every call, from the **latest full conversation** — so tapping it again after more chat gives an updated note.
+- **Grounded strictly in the conversation.** Nothing is fabricated; missing clinically-relevant info is listed in `unavailable` (e.g. "No vital signs recorded"). `objective` will often say measurements weren't reported — that's expected, not an error.
+
+Request (JSON):
+```json
+{ "session_id": "patient_42", "user_id": "optional" }
+```
+
+Response (JSON):
+```json
+{
+  "subjective": "Patient reports a fever for 5 days, currently 102F. Paracetamol gives partial relief. Denies cough or sore throat.",
+  "objective": "Temperature 102F (patient-reported). No other objective measurements or examination findings were reported.",
+  "assessment": "Persistent fever for 5 days without localizing symptoms; warrants prompt in-person evaluation. No confirmed diagnosis.",
+  "plan": "In-person review within 24–48h; continue paracetamol per label; hydrate; monitor for red flags (severe headache, rash, breathlessness, confusion).",
+  "unavailable": ["No physical examination performed", "No allergies stated", "No past medical history stated"],
+  "session_id": "patient_42",
+  "request_id": "01J...",
+  "generated_at": "2026-07-16T09:12:44.512000+00:00"
+}
+```
+
+Render as a clean, printable/exportable document — one heading per section (S/O/A/P). Show `unavailable` as a small "Not documented in this conversation" list so the doctor knows what's missing. Add a "Regenerate" action that re-calls the endpoint. `404` means there's no conversation for that `session_id` yet.
 
 ### `POST /chat/image`
 

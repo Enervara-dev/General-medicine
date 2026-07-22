@@ -76,7 +76,7 @@ def _print_banner(
     print(f"Episodic user  : {user_id or '(disabled — pass --user-id to enable)'}")
     print(f"Memory display : {'on' if show_memory else 'off'}")
     print("-" * 72)
-    print("Commands: :memory  :session  :help  quit")
+    print("Commands: :memory  :session  :soap  :help  quit")
     print("=" * 72 + "\n")
 
 
@@ -119,12 +119,41 @@ def _print_memory_snapshot(pipeline, session_id: str) -> None:
     print("-" * 72 + "\n")
 
 
+def _print_soap(pipeline, session_id: str) -> None:
+    """Generate + print a doctor-facing SOAP note from the current session."""
+    from graphrag.config.settings import settings
+    from app.services.soap import generate_soap_sync
+
+    session = pipeline.memory_adapter.load(session_id).session
+    if session.total_messages == 0:
+        print("\n(No conversation yet — ask something first.)\n")
+        return
+
+    note = generate_soap_sync(session, model=settings.ANSWER_MODEL)
+    print("\n" + "=" * 72)
+    print("SOAP NOTE (share with your doctor)")
+    print("=" * 72)
+    for label, key in (
+        ("SUBJECTIVE", "subjective"),
+        ("OBJECTIVE", "objective"),
+        ("ASSESSMENT", "assessment"),
+        ("PLAN", "plan"),
+    ):
+        print(f"\n{label}\n{'-' * len(label)}\n{note.get(key) or '—'}")
+    if note.get("unavailable"):
+        print("\nNOT AVAILABLE IN CONVERSATION\n" + "-" * 28)
+        for item in note["unavailable"]:
+            print(f"  • {item}")
+    print("=" * 72 + "\n")
+
+
 def _handle_command(command: str, pipeline, session_id: str) -> bool:
     cmd = command.strip().lower()
     if cmd in {":help", "help"}:
         print("\nAvailable commands")
         print("- :memory   Show the Redis-backed clinical memory snapshot")
         print("- :session  Show the current session id")
+        print("- :soap     Generate a doctor-facing SOAP note for this session")
         print("- quit      Exit the assistant\n")
         return True
     if cmd == ":memory":
@@ -132,6 +161,9 @@ def _handle_command(command: str, pipeline, session_id: str) -> bool:
         return True
     if cmd == ":session":
         print(f"\nCurrent session id: {session_id}\n")
+        return True
+    if cmd == ":soap":
+        _print_soap(pipeline, session_id)
         return True
     return False
 

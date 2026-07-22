@@ -446,6 +446,17 @@ class GraphRAGPipeline:
             emitted.append(block)
             yield block
 
+        # A concluded answer flips the sticky doctor-summary flag; emit a trailing
+        # control block so the client can offer "Show this to your doctor". Not
+        # appended to `emitted` — control state never enters memory.
+        if terminal or consolidate:
+            session.doctor_summary_ready = True
+        from graphrag.schemas.blocks import AnswerStateBlock, AnswerStateData
+        yield AnswerStateBlock(
+            type="answer_state",
+            data=AnswerStateData(show_doctor_summary=session.doctor_summary_ready),
+        )
+
         self.memory_adapter.update_after_interaction(
             session=session,
             user_query=original_query_text,

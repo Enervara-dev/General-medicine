@@ -25,6 +25,9 @@ class ChatResponse(BaseModel):
     timing_ms: dict[str, int] = Field(default_factory=dict)
     routing: dict[str, Any] = Field(default_factory=dict)
     followup_questions: list[str] = Field(default_factory=list)
+    # True once the consultation has reached a concluded answer — the client may
+    # then offer "Show this to your doctor" (the SOAP note at POST /chat/soap).
+    show_doctor_summary: bool = False
 
 
 class ChatStreamEvent(BaseModel):
@@ -51,3 +54,29 @@ class ImageChatResponse(ChatResponse):
     """A `/chat/image` answer: a normal chat response plus the upload metadata."""
 
     media: MediaInfo
+
+
+class SoapRequest(BaseModel):
+    """Trigger a fresh doctor-facing SOAP note for an existing session."""
+
+    session_id: str = Field(min_length=1)
+    user_id: str | None = None
+
+
+class SoapNote(BaseModel):
+    """
+    Doctor-facing SOAP note, generated on demand from the latest conversation.
+
+    Grounded strictly in the conversation — never fabricated. Each section is
+    plain prose; `unavailable` explicitly names clinically relevant information
+    the conversation did not provide (e.g. "no vital signs recorded").
+    """
+
+    subjective: str
+    objective: str
+    assessment: str
+    plan: str
+    unavailable: list[str] = Field(default_factory=list)
+    session_id: str
+    request_id: str
+    generated_at: str  # ISO-8601 UTC, stamped by the route
