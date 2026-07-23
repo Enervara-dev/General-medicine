@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from typing import AsyncIterator, Iterable, Iterator
 
 from pydantic import ValidationError
@@ -103,6 +104,23 @@ def _repair_obj(obj: object) -> dict | None:
         target = {"key_points": "points", "next_steps": "steps", "follow_up_questions": "questions"}[btype]
         if not data.get(target):
             data = {**data, target: [data["text"]]}
+    # Remap a LIST payload given under the wrong key onto the block's real list
+    # field. Covers the model naming the list after itself or another block —
+    # e.g. key_points/{bullet_list:[...]} or key_points/{key_points:[...]} ->
+    # key_points/{points:[...]}. Without this the whole block is dropped.
+    _LIST_TARGET = {
+        "key_points": "points", "next_steps": "steps",
+        "follow_up_questions": "questions", "bullet_list": "items",
+    }
+    if btype in _LIST_TARGET:
+        target = _LIST_TARGET[btype]
+        if not data.get(target):
+            for _k, _v in data.items():
+                if _k == target:
+                    continue
+                if isinstance(_v, list) and _v and all(isinstance(x, str) for x in _v):
+                    data = {**data, target: _v}
+                    break
     if btype == "summary" and not data.get("text"):
         for alt in ("points", "steps", "questions"):
             if isinstance(data.get(alt), list) and data[alt]:
@@ -215,6 +233,14 @@ def _keep(block: Block | None, *, terminal: bool) -> Block | None:
     """
     if block is None:
         return None
+    # Server-only control blocks (e.g. answer_state) must never come FROM the
+    # model — the pipeline injects the authoritative one itself. Drop any the
+    # model imitated so a stray one can't leak or crowd out real content.
+    from graphrag.schemas.blocks import CONTROL_BLOCK_TYPES
+
+    if block.type in CONTROL_BLOCK_TYPES:
+        logger.info("answer block dropped — model emitted control block %r", block.type)
+        return None
     if block.type == _TERMINAL_DROP_TYPE:
         if terminal:
             logger.info("answer block dropped — follow_up_questions on terminal turn")
@@ -238,6 +264,45 @@ def _fallback_block() -> Block:
     return SummaryBlock(type="summary", data=SummaryData(text=_FALLBACK_TEXT))
 
 
+# JSON structural/key tokens that are never human-facing content — excluded when
+# scavenging readable text out of a broken JSON blob.
+_JSON_NONCONTENT: frozenset[str] = frozenset({
+    "type", "data", "text", "points", "steps", "questions", "items", "summary",
+    "warning", "severity", "next_steps", "key_points", "follow_up_questions",
+    "condition_list", "conditions", "name", "likelihood", "description",
+    "decision", "verdict", "rationale", "otc_medications", "medications",
+    "purpose", "dosage", "caution", "bullet_list", "title", "answer_state",
+    "show_doctor_summary", "info", "critical", "most likely", "less likely",
+    "possible", "yes", "no", "possibly", "seek_urgent_care",
+    "insufficient_information",
+})
+
+
+def _text_from_jsonish(raw: str) -> str:
+    """
+    Extract human-readable text from a broken/truncated JSON answer.
+
+    Pulls the string literals that look like prose (contain a space, reasonably
+    long, not a schema key) and joins the first few. Used only as a last resort
+    when no block validated — turns a truncated response into a usable summary
+    instead of the generic apology.
+    """
+    strings = re.findall(r'"((?:[^"\\]|\\.)*)"', raw)
+    vals: list[str] = []
+    for s in strings:
+        cleaned = s.strip()
+        if len(cleaned) > 15 and " " in cleaned and cleaned.lower() not in _JSON_NONCONTENT:
+            # Unescape the common JSON escapes so the text reads naturally.
+            cleaned = (
+                cleaned.replace("\\n", " ").replace("\\t", " ").replace('\\"', '"').replace("\\/", "/")
+            )
+            vals.append(cleaned)
+    if not vals:
+        return ""
+    joined = " ".join(vals[:4])
+    return re.sub(r"\s+", " ", joined).strip()
+
+
 def _salvage_prose(raw: str, *, terminal: bool) -> Block | None:
     """
     Rescue a plain-prose answer into a real block.
@@ -256,10 +321,15 @@ def _salvage_prose(raw: str, *, terminal: bool) -> Block | None:
             text = text[4:].strip()
     if not text:
         return None
-    # Genuine (but unparseable) JSON should not be masqueraded as prose — the
-    # object-level recovery already had its chance; bail to the generic fallback.
+    # Unparseable JSON (truncated / malformed) reaches here when NO block
+    # validated. Rather than the generic apology, pull the human-readable string
+    # values out of the broken blob and render those. Only if nothing usable
+    # comes back do we fall through to the generic fallback.
     if text[:1] in "{[":
-        return None
+        extracted = _text_from_jsonish(text)
+        if not extracted:
+            return None
+        text = extracted
 
     from graphrag.schemas.blocks import (
         FollowUpQuestionsBlock,

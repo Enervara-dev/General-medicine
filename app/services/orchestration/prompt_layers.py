@@ -645,9 +645,9 @@ def layer_block_plan(
 # ---------------------------------------------------------------------------
 
 def layer_output_contract() -> str:
-    from graphrag.schemas.blocks import BLOCK_TYPES
+    from graphrag.schemas.blocks import MODEL_BLOCK_TYPES
 
-    types_line = ", ".join(BLOCK_TYPES)
+    types_line = ", ".join(MODEL_BLOCK_TYPES)
     return (
         "OUTPUT CONTRACT — emit NDJSON.\n"
         "- Output exactly one JSON block object per line. The entire reply must be "

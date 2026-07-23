@@ -438,12 +438,17 @@ def test_block_plan_non_substantive_single_summary():
 
 
 def test_output_contract_is_ndjson_and_lists_all_block_types():
+    from graphrag.schemas.blocks import CONTROL_BLOCK_TYPES, MODEL_BLOCK_TYPES
+
     out = layer_output_contract()
     assert "OUTPUT CONTRACT" in out
     assert "NDJSON" in out
-    # Single source of truth: every BLOCK_TYPES value is named.
-    for bt in BLOCK_TYPES:
+    # The contract advertises every MODEL-emittable block type…
+    for bt in MODEL_BLOCK_TYPES:
         assert bt in out
+    # …but NEVER server-only control blocks (else the model imitates them).
+    for bt in CONTROL_BLOCK_TYPES:
+        assert bt not in out
     # Forbids array/wrapping/markdown and shows the two-line example.
     lo = out.lower()
     assert "one json block object per line" in lo

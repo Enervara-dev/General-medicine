@@ -213,6 +213,17 @@ BLOCK_TYPES: tuple[str, ...] = (
     "answer_state",
 )
 
+# Control blocks the SERVER injects but the model must never emit. They are
+# excluded from the model-facing OUTPUT CONTRACT (so the model doesn't imitate
+# them) and dropped by the validator if the model produces one anyway.
+CONTROL_BLOCK_TYPES: frozenset[str] = frozenset({"answer_state"})
+
+# The block types the model is actually allowed to produce — everything except
+# server-only control blocks. This is what the OUTPUT CONTRACT advertises.
+MODEL_BLOCK_TYPES: tuple[str, ...] = tuple(
+    t for t in BLOCK_TYPES if t not in CONTROL_BLOCK_TYPES
+)
+
 
 class AnswerResponse(BaseModel):
     """Full block list for non-streaming consumers. Streaming emits Block-by-Block."""
@@ -223,6 +234,8 @@ class AnswerResponse(BaseModel):
 
 __all__ = [
     "BLOCK_TYPES",
+    "CONTROL_BLOCK_TYPES",
+    "MODEL_BLOCK_TYPES",
     "AnswerResponse",
     "Block",
     "BlockAdapter",

@@ -104,6 +104,34 @@ def test_prose_statement_is_salvaged_into_summary_on_terminal():
     assert "viral fever" in blocks[0].data.text
 
 
+def test_key_points_list_under_wrong_key_is_repaired():
+    # Model put the list under 'bullet_list'/'key_points' instead of 'points'.
+    for wrong in ("bullet_list", "key_points"):
+        tokens = iter(['{"type":"key_points","data":{"%s":["a","b"]}}\n' % wrong])
+        blocks = list(iter_blocks(tokens, terminal=False))
+        assert [b.type for b in blocks] == ["key_points"]
+        assert blocks[0].data.points == ["a", "b"]
+
+
+def test_model_emitted_control_block_is_dropped():
+    # answer_state is server-only; a model-emitted one must be dropped, and a
+    # real block in the same stream still survives.
+    tokens = iter([
+        '{"type":"answer_state","data":{"show_doctor_summary":true}}\n',
+        '{"type":"summary","data":{"text":"real answer"}}\n',
+    ])
+    blocks = list(iter_blocks(tokens, terminal=False))
+    assert [b.type for b in blocks] == ["summary"]
+
+
+def test_truncated_json_is_salvaged_into_summary():
+    # A single truncated object (never closes) → readable text scavenged out.
+    tokens = iter(['{"type":"next_steps","data":{"steps":["Keep hydrated and rest well today.","Then '])
+    blocks = list(iter_blocks(tokens, terminal=False))
+    assert [b.type for b in blocks] == ["summary"]
+    assert "hydrated" in blocks[0].data.text.lower()
+
+
 def test_followup_block_capped_to_one_question():
     # Contract: at most one question per turn. A block with several is truncated.
     tokens = iter(['{"type":"follow_up_questions","data":{"questions":["q1","q2","q3"]}}\n'])
