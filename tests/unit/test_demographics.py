@@ -189,6 +189,17 @@ def test_relevance_symptom_query_gets_age_sex_baseline():
     assert fields == {"age", "sex"}
 
 
+def test_relevance_direct_profile_asks():
+    # "which city am I from?" must inject location even without the phrase "my city".
+    assert {"city", "state"} <= select_relevant_fields(
+        FULL, {"intent": "followup_query"}, "which city am I from?")
+    # "how old am I?" injects age.
+    assert "age" in select_relevant_fields(FULL, {"intent": "followup_query"}, "how old am I?")
+    # "what's my BMI?" pulls the body bundle.
+    assert {"bmi", "height_cm", "weight_kg"} <= select_relevant_fields(
+        FULL, {"intent": "followup_query"}, "what's my BMI?")
+
+
 # ---------------------------------------------------------------------------
 # Rendering
 # ---------------------------------------------------------------------------

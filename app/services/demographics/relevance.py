@@ -69,6 +69,20 @@ _PERSONAL_KW = (
     "should i", "can i", "do i", "am i", "for me", "my ", "i have", "i am",
     "i'm ", "in my case", "given my",
 )
+# Direct "what is my <field>?" asks → inject exactly that field (with the bundle
+# a derived value needs). Order-independent; all matching rules apply.
+_DIRECT_FIELD_ASKS: tuple[tuple[tuple[str, ...], set[str]], ...] = (
+    (("bmi", "body mass index"), {"bmi", "age", "sex", "height_cm", "weight_kg"}),
+    (("how tall", "my height", "height"), {"height_cm"}),
+    (("how much do i weigh", "my weight", "weigh", "overweight", "underweight"),
+     {"weight_kg", "height_cm", "bmi", "age", "sex"}),
+    (("how old", "my age", "what is my age"), {"age"}),
+    (("my gender", "my sex"), {"sex"}),
+    (("which city", "what city", "my city", "where am i from", "where i live",
+      "my location", "my region", "which state", "what state", "my state"),
+     {"city", "state"}),
+)
+
 # Purely educational intents that default to NO demographics unless a cue fires.
 _EDUCATIONAL_INTENTS = frozenset({
     "condition_explanation", "prognosis_query", "prevention_query",
@@ -101,6 +115,13 @@ def select_relevant_fields(
     fields: set[str] = set()
 
     has_personal_cue = any(k in text for k in _PERSONAL_KW)
+
+    # Direct questions about a specific stored field ("what's my BMI?", "how old
+    # am I?", "which city am I from?"). These ask for the value itself, so inject
+    # exactly that field (BMI/weight also pull the body bundle they depend on).
+    for keywords, add in _DIRECT_FIELD_ASKS:
+        if any(k in text for k in keywords):
+            fields.update(add)
 
     # Baseline clinical context.
     if intent in _CLINICAL_INTENTS:
@@ -169,8 +190,9 @@ def render_demographic_block(
     return (
         "=== PATIENT DEMOGRAPHICS (authoritative, current) ===\n"
         f"{body}\n"
-        "These are established patient facts — use them when clinically relevant "
-        "and never ask the patient to repeat them."
+        "These are the patient's own stored details. Use them to answer directly "
+        "— including simply telling the patient a detail they ask about (e.g. "
+        "their age or city) — and never ask them to repeat what is listed here."
     )
 
 
