@@ -41,11 +41,20 @@ class SessionBundle:
     working_memory: WorkingMemory
 
 
-async def load_session(mgr: SessionManager, session_id: str) -> SessionBundle:
-    """Load the session from Redis (or in-memory fallback) and project working memory."""
-    session = await mgr.load_session(session_id)
+async def load_session(
+    mgr: SessionManager, session_id: str, user_id: str | None = None
+) -> SessionBundle:
+    """
+    Load the session from Redis (or in-memory fallback) and project working memory.
+
+    When ``user_id`` is supplied the session is scoped to that owner, so a
+    ``session_id`` alone cannot reach another user's memory. The returned
+    ``SessionMemory.session_id`` is unchanged (client-facing); only the storage
+    key is namespaced.
+    """
+    session = await mgr.load_session(session_id, user_id=user_id)
     if session is None:
-        session = await mgr.create_session(session_id=session_id)
+        session = await mgr.create_session(session_id=session_id, user_id=user_id)
     return SessionBundle(session=session, working_memory=get_working_memory(session))
 
 
@@ -107,8 +116,16 @@ def assemble_memory_payload(
     goal: str,
     vector_context: str,
     graph_context: str,
+    authoritative_demographics: frozenset[str] | set[str] = frozenset(),
 ) -> ContextPayload:
-    """Compose the LLM's context block. Pure wrapper around the existing builder."""
+    """
+    Compose the LLM's context block. Pure wrapper around the existing builder.
+
+    ``authoritative_demographics`` names the demographic fields the canonical
+    MongoDB profile owns this turn; conversational values for those are
+    suppressed from the session-state block so they can't conflict with the
+    authoritative profile.
+    """
     rag_context = _combine_rag_context(vector_context, graph_context)
     return assemble_context_payload(
         wm=wm,
@@ -116,6 +133,7 @@ def assemble_memory_payload(
         query_type=query_type,
         goal=goal,
         rag_context=rag_context,
+        authoritative_demographics=authoritative_demographics,
     )
 
 
@@ -127,8 +145,13 @@ async def save_after_turn(
     assistant_answer: str,
     analysis: dict[str, Any],
     query_type: str | None,
+    user_id: str | None = None,
 ) -> SessionMemory:
-    """Update structured state, append turns, maybe summarize, then persist."""
+    """Update structured state, append turns, maybe summarize, then persist.
+
+    ``user_id`` scopes the storage key to the owning user (must match the value
+    used at load time) so sessions stay isolated per user.
+    """
     user_msg = Message(
         role=Role.USER,
         content=user_query,
@@ -147,7 +170,7 @@ async def save_after_turn(
         session.add_turn(Message(role=Role.ASSISTANT, content=assistant_answer))
 
     session = maybe_summarize(session)
-    await mgr.save_session(session)
+    await mgr.save_session(session, user_id=user_id)
     return session
 
 

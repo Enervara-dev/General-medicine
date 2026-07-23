@@ -225,6 +225,71 @@ def test_render_block_bmi_query_full_body():
 
 
 # ---------------------------------------------------------------------------
+# Fix 2: Mongo demographics authoritative over conversational state
+# ---------------------------------------------------------------------------
+
+def _state_with_conv_demo(age=None, sex=None, name=None):
+    from Memory_Layer.session_memory.models import StructuredState
+    demo = {}
+    if age is not None:
+        demo["age"] = age
+    if sex is not None:
+        demo["sex"] = sex
+    if name is not None:
+        demo["name"] = name
+    return StructuredState(demographics=demo, symptoms=["fever"])
+
+
+def test_conversational_age_sex_suppressed_when_mongo_authoritative():
+    from Memory_Layer.session_memory.context_builder import _state_lines
+    # Conversation claims 40/female; Mongo owns age+sex → suppress the claims.
+    state = _state_with_conv_demo(age=40, sex="female")
+    lines = "\n".join(_state_lines(state, authoritative_demographics={"age", "sex"}))
+    assert "40" not in lines
+    assert "female" not in lines
+    # The clinical fact is still rendered (we only suppress demographics).
+    assert "fever" in lines.lower()
+
+
+def test_conversational_demo_labeled_unverified_when_no_mongo():
+    from Memory_Layer.session_memory.context_builder import _state_lines
+    # No authoritative fields (anonymous / incomplete profile) → keep but label.
+    state = _state_with_conv_demo(age=40, sex="female")
+    lines = "\n".join(_state_lines(state, authoritative_demographics=frozenset()))
+    assert "unverified" in lines.lower()
+    assert "40" in lines and "female" in lines
+
+
+def test_name_kept_even_when_demographics_authoritative():
+    from Memory_Layer.session_memory.context_builder import _state_lines
+    # Mongo has no name; the conversational name is always preserved.
+    state = _state_with_conv_demo(age=40, sex="female", name="Aarav")
+    lines = "\n".join(_state_lines(state, authoritative_demographics={"age", "sex"}))
+    assert "Aarav" in lines
+    assert "40" not in lines  # age still suppressed
+
+
+def test_partial_authoritative_only_suppresses_owned_field():
+    from Memory_Layer.session_memory.context_builder import _state_lines
+    # Mongo owns age but not sex → suppress age, keep sex (labeled unverified).
+    state = _state_with_conv_demo(age=40, sex="female")
+    lines = "\n".join(_state_lines(state, authoritative_demographics={"age"}))
+    assert "40" not in lines
+    assert "female" in lines and "unverified" in lines.lower()
+
+
+def test_build_memory_context_threads_authoritative():
+    from Memory_Layer.session_memory.context_builder import build_memory_context
+    from Memory_Layer.session_memory.retriever import get_working_memory
+    from Memory_Layer.session_memory.models import SessionMemory
+    s = SessionMemory(session_id="s")
+    s.state = _state_with_conv_demo(age=40, sex="male")
+    wm = get_working_memory(s)
+    ctx = build_memory_context(wm, authoritative_demographics={"age", "sex"})
+    assert "40" not in ctx  # conversational age suppressed end-to-end
+
+
+# ---------------------------------------------------------------------------
 # Orchestrator integration (prompt injection + resilience without demographics)
 # ---------------------------------------------------------------------------
 
@@ -257,36 +322,46 @@ class _Container:
         self.demographics = demographics
 
 
-async def test_orchestrator_demographic_block_disabled_service():
-    # /chat + /chat/stream must work when demographics are off — the injection
-    # boundary yields "" and the pipeline proceeds unchanged.
-    from app.services.orchestration.pipeline import AsyncOrchestrator
+async def test_orchestrator_demographics_disabled_service():
+    # /chat + /chat/stream must work when demographics are off — the loader
+    # yields None and the pipeline proceeds unchanged.
+    from app.services.orchestration.pipeline import (
+        AsyncOrchestrator,
+        _authoritative_demographic_fields,
+    )
 
     orch = AsyncOrchestrator(_Container(_service([VALID_DOC], enabled=False)))
-    block = await orch._demographic_block(user_id="uid-123", analysis={"intent": "symptom_query"}, query="hi")
-    assert block == ""
+    demo = await orch._load_demographics("uid-123")
+    assert demo is None
+    assert _authoritative_demographic_fields(demo) == frozenset()
+    assert render_demographic_block(demo, {"intent": "symptom_query"}, "hi") == ""
 
 
-async def test_orchestrator_demographic_block_no_user_id():
+async def test_orchestrator_demographics_no_user_id():
     from app.services.orchestration.pipeline import AsyncOrchestrator
 
     orch = AsyncOrchestrator(_Container(_service([VALID_DOC])))
-    assert await orch._demographic_block(user_id=None, analysis={"intent": "symptom_query"}, query="hi") == ""
+    assert await orch._load_demographics(None) is None
 
 
-async def test_orchestrator_demographic_block_mongo_down_is_graceful():
+async def test_orchestrator_demographics_mongo_down_is_graceful():
     from app.services.orchestration.pipeline import AsyncOrchestrator
 
     orch = AsyncOrchestrator(_Container(_service([], raise_exc=RuntimeError("down"))))
-    # Must return "" (not raise) so the chat turn continues.
-    assert await orch._demographic_block(user_id="uid-123", analysis={"intent": "symptom_query"}, query="hi") == ""
+    # Must return None (not raise) so the chat turn continues.
+    assert await orch._load_demographics("uid-123") is None
 
 
-async def test_orchestrator_demographic_block_relevant_injection():
-    from app.services.orchestration.pipeline import AsyncOrchestrator
+async def test_orchestrator_demographics_relevant_injection_and_authority():
+    from app.services.orchestration.pipeline import (
+        AsyncOrchestrator,
+        _authoritative_demographic_fields,
+    )
 
     orch = AsyncOrchestrator(_Container(_service([VALID_DOC])))
-    block = await orch._demographic_block(
-        user_id="uid-123", analysis={"intent": "lifestyle_query"}, query="Am I overweight for my height?"
-    )
+    demo = await orch._load_demographics("uid-123")
+    assert demo is not None
+    # Mongo owns age + sex → they become authoritative (suppress conversational).
+    assert _authoritative_demographic_fields(demo) == frozenset({"age", "sex"})
+    block = render_demographic_block(demo, {"intent": "lifestyle_query"}, "Am I overweight for my height?")
     assert "BMI" in block and "Height" in block

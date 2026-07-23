@@ -5,7 +5,12 @@ Async Redis-backed session manager for the Enervera memory layer.
 Includes a graceful in-memory fallback if Redis is unavailable.
 
 Redis key schema:
-  session:{session_id}   →  orjson-serialised SessionMemory
+  session:{user_id}:{session_id}   →  orjson-serialised SessionMemory  (authenticated)
+  session:{session_id}             →  orjson-serialised SessionMemory  (anonymous)
+
+Ownership: when a ``user_id`` is supplied, the session is namespaced under that
+user so one user's ``session_id`` can never load another user's session memory.
+Anonymous sessions (no ``user_id``) keep the flat key for backward compatibility.
 """
 
 from __future__ import annotations
@@ -48,7 +53,17 @@ REDIS_URL:       str = os.getenv("REDIS_URL", "redis://localhost:6379/0")
 SESSION_TTL_SEC: int = int(os.getenv("SESSION_TTL_SEC", str(60 * 60 * 2)))
 KEY_PREFIX:      str = "session"
 
-def _redis_key(session_id: str) -> str:
+def _redis_key(session_id: str, user_id: str | None = None) -> str:
+    """
+    Storage key for a session.
+
+    Authenticated sessions are namespaced under the owning ``user_id`` so a
+    ``session_id`` alone can never reach another user's memory. Anonymous
+    sessions (no ``user_id``) keep the flat ``session:{session_id}`` key.
+    """
+    uid = (user_id or "").strip()
+    if uid:
+        return f"{KEY_PREFIX}:{uid}:{session_id}"
     return f"{KEY_PREFIX}:{session_id}"
 
 # ---------------------------------------------------------------------------
@@ -123,14 +138,18 @@ class SessionManager:
     async def __aexit__(self, *_: object) -> None:
         await self.close()
 
-    async def create_session(self, session_id: str | None = None) -> SessionMemory:
+    async def create_session(
+        self, session_id: str | None = None, user_id: str | None = None
+    ) -> SessionMemory:
         session = SessionMemory(session_id=session_id or uuid4().hex)
-        await self.save_session(session)
+        await self.save_session(session, user_id=user_id)
         return session
 
-    async def load_session(self, session_id: str) -> SessionMemory | None:
-        key = _redis_key(session_id)
-        
+    async def load_session(
+        self, session_id: str, user_id: str | None = None
+    ) -> SessionMemory | None:
+        key = _redis_key(session_id, user_id)
+
         if self._use_fallback:
             raw = _IN_MEMORY_STORE.get(key)
         else:
@@ -144,9 +163,11 @@ class SessionManager:
 
         return _deserialize(raw)
 
-    async def save_session(self, session: SessionMemory) -> None:
+    async def save_session(
+        self, session: SessionMemory, user_id: str | None = None
+    ) -> None:
         session._trim_turns()
-        key  = _redis_key(session.session_id)
+        key  = _redis_key(session.session_id, user_id)
         data = _serialize(session)
 
         if self._use_fallback:
@@ -157,8 +178,10 @@ class SessionManager:
             except Exception:
                 _IN_MEMORY_STORE[key] = data
 
-    async def delete_session(self, session_id: str) -> bool:
-        key = _redis_key(session_id)
+    async def delete_session(
+        self, session_id: str, user_id: str | None = None
+    ) -> bool:
+        key = _redis_key(session_id, user_id)
         if self._use_fallback:
             return bool(_IN_MEMORY_STORE.pop(key, None))
         try:

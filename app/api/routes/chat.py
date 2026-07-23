@@ -155,7 +155,7 @@ async def chat_soap(req: SoapRequest, request: Request, ctx: ContainerDep) -> So
     from app.services.soap import generate_soap_async
 
     request_id = _request_id(request)
-    bundle = await load_session(ctx.session_manager, req.session_id)
+    bundle = await load_session(ctx.session_manager, req.session_id, user_id=req.user_id)
     if bundle.session.total_messages == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

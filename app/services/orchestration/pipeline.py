@@ -90,7 +90,7 @@ class AsyncOrchestrator:
 
         # Stage -2: Session memory
         with _Stage("session_load", timing):
-            bundle = await load_session(self._c.session_manager, session_id)
+            bundle = await load_session(self._c.session_manager, session_id, user_id=user_id)
 
         session = bundle.session
         wm = bundle.working_memory
@@ -116,6 +116,7 @@ class AsyncOrchestrator:
                 assistant_answer=msg,
                 analysis=analysis,
                 query_type="emergency" if final_action in {"emergency_redirect", "mental_health_crisis"} else "unknown",
+                user_id=user_id,
             )
             timing["total"] = int((time.monotonic() - t0) * 1000)
             return ChatResult(
@@ -199,6 +200,12 @@ class AsyncOrchestrator:
                     user_id=user_id, query_text=retrieval_query_text
                 )
 
+        # Authoritative demographics (MongoDB) — loaded ONCE. The object drives
+        # both the injected block and suppression of conflicting conversational
+        # age/sex in the session-state block (Mongo is the source of truth).
+        demo = await self._load_demographics(user_id)
+        authoritative = _authoritative_demographic_fields(demo)
+
         # Stage 4: LLM answer
         memory_payload = assemble_memory_payload(
             wm=wm,
@@ -207,16 +214,15 @@ class AsyncOrchestrator:
             goal=cfg.goal,
             vector_context=vector_context_str,
             graph_context=graph_context_str,
+            authoritative_demographics=authoritative,
         )
         combined_memory = memory_payload.memory_context
         if episodic_context_str:
             combined_memory = episodic_context_str.strip() + "\n\n" + combined_memory
 
-        # Authoritative demographics (MongoDB), selected for relevance to this
-        # query. Separate from memory/episodic/retrieval; empty when N/A.
-        demographic_context = await self._demographic_block(
-            user_id=user_id, analysis=analysis, query=query
-        )
+        from app.services.demographics import render_demographic_block
+
+        demographic_context = render_demographic_block(demo, analysis, query)
 
         with _Stage("llm", timing):
             answer = await self._answer_async(
@@ -258,6 +264,7 @@ class AsyncOrchestrator:
                 assistant_answer=answer or "",
                 analysis=analysis or {},
                 query_type=query_type.value,
+                user_id=user_id,
             )
 
         timing["total"] = int((time.monotonic() - t0) * 1000)
@@ -316,7 +323,7 @@ class AsyncOrchestrator:
         # ------------------------------------------------------------------
         try:
             with _Stage("session_load", timing):
-                bundle = await load_session(self._c.session_manager, session_id)
+                bundle = await load_session(self._c.session_manager, session_id, user_id=user_id)
             session = bundle.session
             wm = bundle.working_memory
             memory_query_text = build_retrieval_query(query, wm)
@@ -339,6 +346,7 @@ class AsyncOrchestrator:
                     assistant_answer=msg,
                     analysis=analysis,
                     query_type="emergency" if final_action in {"emergency_redirect", "mental_health_crisis"} else "unknown",
+                    user_id=user_id,
                 )
                 yield {"type": "chunk", "data": msg}
                 timing["total"] = int((time.monotonic() - t0) * 1000)
@@ -399,6 +407,8 @@ class AsyncOrchestrator:
                         user_id=user_id, query_text=retrieval_query_text
                     )
 
+            demo = await self._load_demographics(user_id)
+            authoritative = _authoritative_demographic_fields(demo)
             memory_payload = assemble_memory_payload(
                 wm=wm,
                 user_query=query,
@@ -406,6 +416,7 @@ class AsyncOrchestrator:
                 goal=route_cfg.goal,
                 vector_context=vector_context_str,
                 graph_context=graph_context_str,
+                authoritative_demographics=authoritative,
             )
             combined_memory = memory_payload.memory_context
             if episodic_context_str:
@@ -427,9 +438,9 @@ class AsyncOrchestrator:
             # ------------------------------------------------------------------
             # Stage 4: streaming LLM answer
             # ------------------------------------------------------------------
-            demographic_context = await self._demographic_block(
-                user_id=user_id, analysis=analysis, query=query
-            )
+            from app.services.demographics import render_demographic_block
+
+            demographic_context = render_demographic_block(demo, analysis, query)
             system_prompt, user_prompt = _compose_answer_prompts(
                 query=query,
                 memory_context=combined_memory,
@@ -479,6 +490,7 @@ class AsyncOrchestrator:
                     assistant_answer=answer,
                     analysis=analysis or {},
                     query_type=query_type.value,
+                    user_id=user_id,
                 )
 
             timing["total"] = int((time.monotonic() - t0) * 1000)
@@ -519,7 +531,7 @@ class AsyncOrchestrator:
 
         emitted: list["Block"] = []
         try:
-            bundle = await load_session(self._c.session_manager, session_id)
+            bundle = await load_session(self._c.session_manager, session_id, user_id=user_id)
             session = bundle.session
             wm = bundle.working_memory
             memory_query_text = build_retrieval_query(query, wm)
@@ -544,6 +556,7 @@ class AsyncOrchestrator:
                     assistant_answer=render_blocks_text(emitted),
                     analysis=analysis,
                     query_type="emergency" if final_action in {"emergency_redirect", "mental_health_crisis"} else "unknown",
+                    user_id=user_id,
                 )
                 return
 
@@ -604,6 +617,8 @@ class AsyncOrchestrator:
                     user_id=user_id, query_text=retrieval_query_text
                 )
 
+            demo = await self._load_demographics(user_id)
+            authoritative = _authoritative_demographic_fields(demo)
             memory_payload = assemble_memory_payload(
                 wm=wm,
                 user_query=query,
@@ -611,14 +626,15 @@ class AsyncOrchestrator:
                 goal=route_cfg.goal,
                 vector_context=vector_context_str,
                 graph_context=graph_context_str,
+                authoritative_demographics=authoritative,
             )
             combined_memory = memory_payload.memory_context
             if episodic_context_str:
                 combined_memory = episodic_context_str.strip() + "\n\n" + combined_memory
 
-            demographic_context = await self._demographic_block(
-                user_id=user_id, analysis=analysis, query=query
-            )
+            from app.services.demographics import render_demographic_block
+
+            demographic_context = render_demographic_block(demo, analysis, query)
             system_prompt, user_prompt = _compose_answer_prompts(
                 query=query,
                 memory_context=combined_memory,
@@ -666,6 +682,7 @@ class AsyncOrchestrator:
                 assistant_answer=render_blocks_text(emitted),
                 analysis=analysis or {},
                 query_type=query_type.value,
+                user_id=user_id,
             )
 
         except Exception as exc:
@@ -733,27 +750,22 @@ class AsyncOrchestrator:
             logger.exception("LLM answer failed: %s", exc)
             return ""
 
-    async def _demographic_block(
-        self, *, user_id: str | None, analysis: dict[str, Any] | None, query: str
-    ) -> str:
+    async def _load_demographics(self, user_id: str | None):
         """
-        Load AI-safe demographics for this user and render only the fields
-        relevant to the query. Empty string when there's nothing to inject or on
-        any failure — demographics must never break a turn.
+        Load the AI-safe DemographicContextV1 for this user (or None). Fail-open:
+        any error/missing data returns None so a turn never breaks. This is the
+        single Mongo read per turn — the same object drives both the injected
+        demographics block and the authoritative-field suppression in session
+        state (so the two demographic sources can't conflict).
         """
         svc = getattr(self._c, "demographics", None)
         if svc is None or not user_id:
-            return ""
+            return None
         try:
-            demo = await svc.load(user_id)
-            if demo is None:
-                return ""
-            from app.services.demographics import render_demographic_block
-
-            return render_demographic_block(demo, analysis, query)
+            return await svc.load(user_id)
         except Exception as exc:  # noqa: BLE001 — fail open
-            logger.warning("Demographic block build failed: %s", exc)
-            return ""
+            logger.warning("Demographics load failed: %s", exc)
+            return None
 
     async def _load_episodic_context(self, *, user_id: str, query_text: str) -> str:
         """Best-effort episodic context block; empty string on any failure."""
@@ -809,6 +821,24 @@ def _route_budget(mode: RoutingMode, cfg) -> tuple[int, int, int]:
     if mode == RoutingMode.MEMORY_FIRST:
         return (3, 3, 0)
     return (cfg.vector_top_k, cfg.reranker_top_k, cfg.graph_hops)
+
+
+def _authoritative_demographic_fields(demo) -> frozenset[str]:
+    """
+    Which demographic fields the canonical MongoDB profile authoritatively owns
+    this turn, among the ones the conversational session state can also carry
+    (age, sex). Used to suppress conflicting conversational values from the
+    session-state block. Height/weight/BMI/location are Mongo-only (the session
+    state never extracts them), so they need no suppression.
+    """
+    if demo is None:
+        return frozenset()
+    fields: set[str] = set()
+    if getattr(demo, "age", None) is not None:
+        fields.add("age")
+    if getattr(demo, "sex", None):
+        fields.add("sex")
+    return frozenset(fields)
 
 
 def _answer_state_block(show_doctor_summary: bool) -> "Block":

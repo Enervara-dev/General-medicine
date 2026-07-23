@@ -109,23 +109,37 @@ def _format_turn(msg: Message) -> str:
     return f"{label}: {content}"
 
 
-def _state_lines(state: StructuredState) -> list[str]:
-    """Render StructuredState as compact, non-empty bullet lines."""
+def _state_lines(
+    state: StructuredState,
+    authoritative_demographics: frozenset[str] | set[str] = frozenset(),
+) -> list[str]:
+    """
+    Render StructuredState as compact, non-empty bullet lines.
+
+    ``authoritative_demographics`` names the demographic fields the canonical
+    MongoDB profile (DemographicContextV1) owns for this turn (e.g. {"age",
+    "sex"}). Those are suppressed here so a conversationally-extracted value
+    can't silently conflict with the authoritative profile in the prompt. Any
+    conversational age/sex the profile does NOT own is kept but clearly labelled
+    "patient-stated, unverified" — never presented as an authoritative fact.
+    The patient's name is always kept (the profile does not carry a name).
+    """
     lines: list[str] = []
 
     demo = state.demographics or {}
     name = demo.get("name")
+    auth = authoritative_demographics or frozenset()
     parts = []
-    if "age" in demo:
+    if "age" in demo and "age" not in auth:
         parts.append(f"age {demo['age']}")
-    if "sex" in demo:
-        parts.append(demo["sex"])
+    if "sex" in demo and "sex" not in auth:
+        parts.append(str(demo["sex"]))
     if name and parts:
-        lines.append(f"Patient name: {name} ({', '.join(parts)}).")
+        lines.append(f"Patient name: {name} (patient-stated, unverified: {', '.join(parts)}).")
     elif name:
         lines.append(f"Patient name: {name}.")
     elif parts:
-        lines.append(f"Patient: {', '.join(parts)}.")
+        lines.append(f"Patient-stated, unverified: {', '.join(parts)}.")
 
     pairs = [
         ("symptoms",   "Symptoms"),
@@ -262,7 +276,10 @@ class FinalPrompt:
 # build_memory_context
 # ---------------------------------------------------------------------------
 
-def build_memory_context(wm: WorkingMemory) -> str:
+def build_memory_context(
+    wm: WorkingMemory,
+    authoritative_demographics: frozenset[str] | set[str] = frozenset(),
+) -> str:
     """
     Build the structured state section from a WorkingMemory object.
 
@@ -271,11 +288,14 @@ def build_memory_context(wm: WorkingMemory) -> str:
 
     Args:
         wm: The assembled WorkingMemory from the retriever layer.
+        authoritative_demographics: demographic fields owned by the canonical
+            MongoDB profile this turn; conversational values for these are
+            suppressed (see ``_state_lines``).
 
     Returns:
         A formatted state block string, or "" if state is empty.
     """
-    lines = _state_lines(wm.state)
+    lines = _state_lines(wm.state, authoritative_demographics)
     if not lines:
         return ""
 
@@ -348,6 +368,7 @@ def assemble_context_payload(
     goal:         str  = "provide a medical answer",
     rag_context:  str  = "",
     token_budget: int  = DEFAULT_TOKEN_BUDGET,
+    authoritative_demographics: frozenset[str] | set[str] = frozenset(),
 ) -> ContextPayload:
     """
     Assemble all memory layers into a structured ContextPayload.
@@ -379,7 +400,7 @@ def assemble_context_payload(
     # at the orchestrator level. The field stays in ContextPayload for
     # backward compat with any external caller that destructures it.
     system_ctx  = ""
-    memory_ctx  = build_memory_context(wm)
+    memory_ctx  = build_memory_context(wm, authoritative_demographics)
     conv_ctx    = build_conversation_context(wm)
 
     # Rolling summary — trim harder than other sections when over budget
