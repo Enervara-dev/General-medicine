@@ -212,6 +212,12 @@ class AsyncOrchestrator:
         if episodic_context_str:
             combined_memory = episodic_context_str.strip() + "\n\n" + combined_memory
 
+        # Authoritative demographics (MongoDB), selected for relevance to this
+        # query. Separate from memory/episodic/retrieval; empty when N/A.
+        demographic_context = await self._demographic_block(
+            user_id=user_id, analysis=analysis, query=query
+        )
+
         with _Stage("llm", timing):
             answer = await self._answer_async(
                 query=query,
@@ -224,6 +230,7 @@ class AsyncOrchestrator:
                 risk_level=str((analysis or {}).get("risk_level") or "none"),
                 media_context=media.context_text if media else "",
                 media=media.parts if media else None,
+                demographic_context=demographic_context,
             )
 
         if followup_questions and answer:
@@ -420,6 +427,9 @@ class AsyncOrchestrator:
             # ------------------------------------------------------------------
             # Stage 4: streaming LLM answer
             # ------------------------------------------------------------------
+            demographic_context = await self._demographic_block(
+                user_id=user_id, analysis=analysis, query=query
+            )
             system_prompt, user_prompt = _compose_answer_prompts(
                 query=query,
                 memory_context=combined_memory,
@@ -428,6 +438,7 @@ class AsyncOrchestrator:
                 graph_context=graph_context_str,
                 query_type=intent_str,
                 risk_level=str((analysis or {}).get("risk_level") or "none"),
+                demographic_context=demographic_context,
             )
 
             llm_t0 = time.monotonic()
@@ -605,6 +616,9 @@ class AsyncOrchestrator:
             if episodic_context_str:
                 combined_memory = episodic_context_str.strip() + "\n\n" + combined_memory
 
+            demographic_context = await self._demographic_block(
+                user_id=user_id, analysis=analysis, query=query
+            )
             system_prompt, user_prompt = _compose_answer_prompts(
                 query=query,
                 memory_context=combined_memory,
@@ -620,6 +634,7 @@ class AsyncOrchestrator:
                 allow_followups=allow_followups,
                 consolidate=consolidate,
                 response_mode=response_mode,
+                demographic_context=demographic_context,
                 output_format="blocks",
             )
 
@@ -683,6 +698,7 @@ class AsyncOrchestrator:
         risk_level: str = "none",
         media_context: str = "",
         media: "list | None" = None,
+        demographic_context: str = "",
     ) -> str:
         """
         Non-streaming Gemini answer. Reuses GeminiLLM's prompt assembly but
@@ -701,6 +717,7 @@ class AsyncOrchestrator:
             query_type=query_type,
             risk_level=risk_level,
             media_context=media_context,
+            demographic_context=demographic_context,
         )
         # Vision-capable model when an image is attached; text model otherwise.
         model = (cfg.VISION_MODEL if media else cfg.ANSWER_MODEL) or DEFAULT_MODEL
@@ -714,6 +731,28 @@ class AsyncOrchestrator:
             )
         except Exception as exc:
             logger.exception("LLM answer failed: %s", exc)
+            return ""
+
+    async def _demographic_block(
+        self, *, user_id: str | None, analysis: dict[str, Any] | None, query: str
+    ) -> str:
+        """
+        Load AI-safe demographics for this user and render only the fields
+        relevant to the query. Empty string when there's nothing to inject or on
+        any failure — demographics must never break a turn.
+        """
+        svc = getattr(self._c, "demographics", None)
+        if svc is None or not user_id:
+            return ""
+        try:
+            demo = await svc.load(user_id)
+            if demo is None:
+                return ""
+            from app.services.demographics import render_demographic_block
+
+            return render_demographic_block(demo, analysis, query)
+        except Exception as exc:  # noqa: BLE001 — fail open
+            logger.warning("Demographic block build failed: %s", exc)
             return ""
 
     async def _load_episodic_context(self, *, user_id: str, query_text: str) -> str:
@@ -844,6 +883,7 @@ def _compose_answer_prompts(
     consolidate: bool = False,
     response_mode: str = "generative_answer",
     media_context: str = "",
+    demographic_context: str = "",
 ) -> tuple[str, str]:
     """
     Compose the (system, user) prompt pair for the answer LLM.
@@ -872,10 +912,13 @@ def _compose_answer_prompts(
     )
 
     media_block = f"\n=== UPLOADED FILE ===\n{media_context}\n" if media_context else ""
+    # Authoritative current patient facts (from MongoDB) — kept SEPARATE from
+    # session/episodic memory and only present when relevant to this query.
+    demo_block = f"\n{demographic_context}\n" if demographic_context else ""
 
     user_prompt = f"""
 USER QUESTION: {query}
-{media_block}
+{media_block}{demo_block}
 === STRUCTURED CLINICAL MEMORY ===
 {memory_context}
 

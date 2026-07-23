@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from app.services.demographics import DemographicsService
     from app.services.media import MediaPipeline
     from app.services.orchestration.pipeline import AsyncOrchestrator
     from episodic.api.dependencies import EpisodicContainer
@@ -46,6 +47,7 @@ class AppContainer:
     analyzer: "MedicalQueryAnalyzer"
     episodic: "EpisodicContainer | None"
     media_pipeline: "MediaPipeline"
+    demographics: "DemographicsService"
     orchestrator: "AsyncOrchestrator"
 
     async def aclose(self) -> None:
@@ -58,6 +60,10 @@ class AppContainer:
             self.kg_retriever.close()
         except Exception as exc:
             logger.warning("kg_retriever close failed: %s", exc)
+        try:
+            self.demographics.close()
+        except Exception as exc:
+            logger.warning("demographics close failed: %s", exc)
 
     # Readiness helpers
     async def ping_pinecone(self) -> None:
@@ -114,6 +120,8 @@ async def build_container() -> AppContainer:
         except Exception as exc:
             logger.warning("Episodic container disabled at boot: %s", exc)
 
+    from app.services.demographics import build_demographics_service
+
     container = AppContainer(
         settings=settings,
         session_manager=session_manager,
@@ -123,6 +131,7 @@ async def build_container() -> AppContainer:
         analyzer=analyzer,
         episodic=episodic,
         media_pipeline=MediaPipeline.from_settings(settings),
+        demographics=build_demographics_service(settings),
         orchestrator=None,  # type: ignore[arg-type]  # filled below
     )
     container.orchestrator = AsyncOrchestrator(container)

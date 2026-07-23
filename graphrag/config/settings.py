@@ -140,6 +140,22 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     SESSION_TTL_SEC: int = 7200
 
+    # ----- MongoDB (read-only authoritative patient demographics) -----
+    # The canonical demographic record lives in `enervara.users`. It is loaded
+    # per-turn (keyed on the request's user_id), projected to AI-safe fields
+    # only, and injected into the answer prompt when clinically relevant. It is
+    # NEVER written to, never embedded into Pinecone, and never mixed into Redis
+    # or episodic memory. All of it fails open: any Mongo error or missing field
+    # degrades to "no demographic context" without breaking /chat.
+    MONGO_URI: Optional[str] = None
+    MONGO_DB: str = "enervara"
+    MONGO_USERS_COLLECTION: str = "users"
+    # Master switch. When false (or MONGO_URI unset), demographics are skipped
+    # entirely and the pipeline behaves exactly as before.
+    DEMOGRAPHICS_ENABLED: bool = True
+    # Short timeouts so a slow/unreachable Mongo never stalls a chat turn.
+    MONGO_TIMEOUT_MS: int = 3000
+
     # ----- PostgreSQL (longitudinal memory; required for new memory/ subsystem) -----
     DATABASE_URL: Optional[str] = None
     MEMORY_CACHE_TTL_SEC: int = 300
