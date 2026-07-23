@@ -47,6 +47,7 @@ _ALLOWED_DATA_FIELDS: dict[str, set[str]] = {
     "condition_list": {"conditions"},
     "decision": {"verdict", "rationale"},
     "otc_medications": {"medications"},
+    "lab_tests": {"tests"},
     "answer_state": {"show_doctor_summary"},
 }
 
@@ -119,6 +120,19 @@ def _repair_obj(obj: object) -> dict | None:
                 if _k == target:
                     continue
                 if isinstance(_v, list) and _v and all(isinstance(x, str) for x in _v):
+                    data = {**data, target: _v}
+                    break
+    # Same idea for object-list blocks (list-of-dicts under the wrong key),
+    # e.g. lab_tests/{investigations:[{...}]} -> lab_tests/{tests:[{...}]}.
+    _OBJ_LIST_TARGET = {
+        "lab_tests": "tests", "otc_medications": "medications",
+        "condition_list": "conditions",
+    }
+    if btype in _OBJ_LIST_TARGET:
+        target = _OBJ_LIST_TARGET[btype]
+        if not data.get(target):
+            for _k, _v in data.items():
+                if _k != target and isinstance(_v, list) and _v and isinstance(_v[0], dict):
                     data = {**data, target: _v}
                     break
     if btype == "summary" and not data.get("text"):
@@ -481,5 +495,14 @@ def render_blocks_text(blocks: list[Block]) -> str:
                     bits.append(f"({m.dosage})")
                 if m.caution:
                     bits.append(f"[caution: {m.caution}]")
+                parts.append("  " + " ".join(bits))
+        elif t == "lab_tests":
+            parts.append("Recommended tests:")
+            for test in d.tests:
+                bits = [test.name]
+                if test.reason:
+                    bits.append(f"— {test.reason}")
+                if test.urgency:
+                    bits.append(f"[{test.urgency}]")
                 parts.append("  " + " ".join(bits))
     return "\n".join(parts).strip()

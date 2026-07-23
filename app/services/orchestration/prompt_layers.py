@@ -435,6 +435,7 @@ _DECISION_BLOCK_PLAN: str = (
     "{followups}"
     "- next_steps: concrete ACTIONS given the verdict (what to do / take / "
     "monitor now) — actions only, never a question.\n"
+    "{lab}"
     "{otc}"
     "Do NOT emit a `summary` block on a decision turn — the `decision` block IS "
     "the headline. Keep it tight; no restating the question."
@@ -462,6 +463,22 @@ _OTC_LINE: str = (
     "doctor's script. OMIT this block entirely when no OTC option is "
     "appropriate, when the safe answer is to seek in-person care, or for a "
     "purely educational question."
+)
+
+# Lab-test recommendation line — appended ONLY on a concluding answer, and
+# placed BEFORE otc_medications (tests belong to the diagnostic plan). India-
+# available investigations only; recommended at the point of diagnosis to
+# confirm / narrow the differential, never ordered reflexively.
+_LAB_LINE: str = (
+    "- lab_tests: when the diagnosis or differential would be meaningfully "
+    "confirmed or narrowed by investigations, recommend the specific tests to "
+    "get — India-commonly-available ones (e.g. CBC, CRP, urine routine, "
+    "fasting/random blood glucose, malaria/dengue NS1, thyroid panel, lipid "
+    "profile, LFT/KFT). For each give `name`, `reason` (what it checks and why "
+    "it's suggested for THIS case), and — when it matters — `urgency` "
+    "(\"routine\", \"soon\", or \"urgent\"). These are suggestions to discuss "
+    "with a doctor or lab, NOT orders. OMIT this block entirely when no test is "
+    "warranted, for a purely educational question, or for an emergency."
 )
 
 
@@ -573,9 +590,11 @@ def layer_block_plan(
     # clarifier). Critical risk above already took precedence, so safety is
     # unchanged.
     if (response_mode or "").strip().lower() == "binary_decision":
-        # A decision turn is itself a concluding answer, so it always offers OTC
-        # self-care (the plan tells the model to omit it when unsafe/N-A).
-        return _DECISION_BLOCK_PLAN.format(followups=followups, otc=_OTC_LINE + "\n")
+        # A decision turn is itself a concluding answer, so it offers lab tests +
+        # OTC self-care (the plan tells the model to omit either when N/A).
+        return _DECISION_BLOCK_PLAN.format(
+            followups=followups, lab=_LAB_LINE + "\n", otc=_OTC_LINE + "\n"
+        )
 
     # GATHERING turn: still interviewing a triage case and NOT yet time to
     # consolidate. The turn is just the one question — NO per-turn summary /
@@ -598,11 +617,12 @@ def layer_block_plan(
         followups=followups
     )
     # On a CONCLUDING answer (assessment / closing turn) for a symptom-like
-    # intent, end with OTC self-care recommendations. Educational-only intents
-    # (explanations, prognosis, procedures, comparisons) don't get it — the line
-    # itself also tells the model to omit when self-care isn't appropriate.
+    # intent, end with recommended lab tests (at the point of diagnosis) then
+    # OTC self-care. Educational-only intents (explanations, prognosis,
+    # procedures, comparisons) don't get them — each line also tells the model
+    # to omit when not appropriate.
     if (terminal or consolidate) and classified in _OTC_ELIGIBLE_INTENTS:
-        plan = plan + _OTC_LINE + "\n"
+        plan = plan + _LAB_LINE + "\n" + _OTC_LINE + "\n"
     # Forbid follow-ups whenever they aren't explicitly requested this turn —
     # closing turns AND turns where the gatekeeper didn't flag one. Without this,
     # the model volunteers a follow_up_questions block even when unwanted.
@@ -665,11 +685,14 @@ def layer_output_contract() -> str:
         "next_steps -> {\"type\":\"next_steps\",\"data\":{\"steps\":[\"...\"]}}; "
         "condition_list -> {\"type\":\"condition_list\",\"data\":{\"conditions\":[{\"name\":\"...\",\"likelihood\":\"most likely\",\"description\":\"...\"}]}}; "
         "decision -> {\"type\":\"decision\",\"data\":{\"verdict\":\"yes\",\"rationale\":\"...\"}}; "
-        "otc_medications -> {\"type\":\"otc_medications\",\"data\":{\"medications\":[{\"name\":\"Paracetamol\",\"purpose\":\"...\",\"dosage\":\"...\",\"caution\":\"...\"}]}}.\n"
+        "otc_medications -> {\"type\":\"otc_medications\",\"data\":{\"medications\":[{\"name\":\"Paracetamol\",\"purpose\":\"...\",\"dosage\":\"...\",\"caution\":\"...\"}]}}; "
+        "lab_tests -> {\"type\":\"lab_tests\",\"data\":{\"tests\":[{\"name\":\"Complete Blood Count (CBC)\",\"reason\":\"...\",\"urgency\":\"routine\"}]}}.\n"
         "- `decision.verdict` MUST be exactly one of: yes, no, possibly, "
         "seek_urgent_care, insufficient_information.\n"
         "- `otc_medications` lists ONLY over-the-counter medicines; `name` and "
         "`purpose` are required, `dosage`/`caution` optional.\n"
+        "- `lab_tests` recommends investigations; `name` and `reason` are "
+        "required, `urgency` (routine|soon|urgent) optional.\n"
         "- Do not rename fields, add extra properties, or omit required fields.\n"
         "- `warning.severity` MUST be exactly one of: info, caution, critical. "
         "Every list field must be non-empty.\n"

@@ -38,6 +38,12 @@ def _render_block_human(block) -> str:
             caution = f" (caution: {m.caution})" if m.caution else ""
             lines.append(f"  • {m.name}: {m.purpose}{dose}{caution}")
         return "\n".join(lines)
+    if t == "lab_tests":
+        lines = ["🧪 Recommended tests to consider:"]
+        for test in d.tests:
+            urg = f" [{test.urgency}]" if test.urgency else ""
+            lines.append(f"  • {test.name}: {test.reason}{urg}")
+        return "\n".join(lines)
     if t == "warning":
         return f"⚠️  [{d.severity.upper()}] {d.text}"
     if t == "next_steps":

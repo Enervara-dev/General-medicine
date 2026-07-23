@@ -380,6 +380,30 @@ def test_block_plan_assessment_turn_leads_with_empathy_and_stopping():
     assert "follow_up_questions" in out
 
 
+def test_lab_tests_on_concluded_symptom_turn():
+    # Recommended tests are offered at diagnosis (concluding turn), before OTC.
+    out = layer_block_plan(query_type="symptom_query", consolidate=True, allow_followups=False)
+    assert "lab_tests" in out
+    # Ordered before otc_medications (tests belong to the plan).
+    assert out.index("lab_tests") < out.index("otc_medications")
+
+
+def test_lab_tests_absent_while_gathering():
+    out = layer_block_plan(query_type="symptom_query", allow_followups=True, terminal=False)
+    assert "lab_tests" not in out
+
+
+def test_lab_tests_absent_for_educational_intent():
+    # Educational conclusions don't recommend investigations.
+    out = layer_block_plan(query_type="condition_explanation", consolidate=True)
+    assert "lab_tests" not in out
+
+
+def test_lab_tests_on_decision_turn():
+    out = layer_block_plan(query_type="symptom_query", response_mode="binary_decision")
+    assert "lab_tests" in out
+
+
 def test_block_plan_followups_gated_by_allow_flag():
     # Use a non-triage intent so the standard plan (with the {followups} line) is used.
     on = layer_block_plan(query_type="medication_query", allow_followups=True)

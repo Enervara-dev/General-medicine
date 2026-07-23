@@ -132,6 +132,29 @@ def test_truncated_json_is_salvaged_into_summary():
     assert "hydrated" in blocks[0].data.text.lower()
 
 
+def test_lab_tests_block_validates():
+    tokens = iter([
+        '{"type":"lab_tests","data":{"tests":['
+        '{"name":"CBC","reason":"check for infection","urgency":"routine"},'
+        '{"name":"Malaria NS1","reason":"fever in an endemic area"}]}}\n'
+    ])
+    blocks = list(iter_blocks(tokens, terminal=True))
+    assert [b.type for b in blocks] == ["lab_tests"]
+    assert blocks[0].data.tests[0].name == "CBC"
+    assert blocks[0].data.tests[0].urgency == "routine"
+    assert blocks[0].data.tests[1].urgency is None  # optional
+
+
+def test_lab_tests_object_list_under_wrong_key_repaired():
+    # Model named the list "investigations" instead of "tests".
+    tokens = iter([
+        '{"type":"lab_tests","data":{"investigations":[{"name":"CRP","reason":"inflammation"}]}}\n'
+    ])
+    blocks = list(iter_blocks(tokens, terminal=True))
+    assert [b.type for b in blocks] == ["lab_tests"]
+    assert blocks[0].data.tests[0].name == "CRP"
+
+
 def test_followup_block_capped_to_one_question():
     # Contract: at most one question per turn. A block with several is truncated.
     tokens = iter(['{"type":"follow_up_questions","data":{"questions":["q1","q2","q3"]}}\n'])

@@ -107,6 +107,23 @@ class OtcMedicationsData(BaseModel):
     medications: list[OtcMedication] = Field(min_length=1)
 
 
+# Urgency for a recommended investigation. Lowercase on the wire; the frontend
+# maps to a badge ("urgent" -> red, "soon" -> amber, "routine"/None -> neutral).
+LabTestUrgency = Literal["routine", "soon", "urgent"]
+
+
+class LabTest(BaseModel):
+    model_config = _STRICT
+    name: str = Field(min_length=1)              # e.g. "Complete Blood Count (CBC)"
+    reason: str = Field(min_length=1)            # why it's suggested, plain English
+    urgency: Optional[LabTestUrgency] = None     # how soon, if it matters
+
+
+class LabTestsData(BaseModel):
+    model_config = _STRICT
+    tests: list[LabTest] = Field(min_length=1)
+
+
 class AnswerStateData(BaseModel):
     model_config = _STRICT
     # True once the consultation has reached a concluded answer — the client
@@ -172,6 +189,12 @@ class OtcMedicationsBlock(BaseModel):
     data: OtcMedicationsData
 
 
+class LabTestsBlock(BaseModel):
+    model_config = _STRICT
+    type: Literal["lab_tests"]
+    data: LabTestsData
+
+
 class AnswerStateBlock(BaseModel):
     model_config = _STRICT
     type: Literal["answer_state"]
@@ -190,6 +213,7 @@ Block = Annotated[
         ConditionListBlock,
         DecisionBlock,
         OtcMedicationsBlock,
+        LabTestsBlock,
         AnswerStateBlock,
     ],
     Field(discriminator="type"),
@@ -210,6 +234,7 @@ BLOCK_TYPES: tuple[str, ...] = (
     "condition_list",
     "decision",
     "otc_medications",
+    "lab_tests",
     "answer_state",
 )
 
@@ -252,6 +277,9 @@ __all__ = [
     "DecisionVerdict",
     "OtcMedication",
     "OtcMedicationsData",
+    "LabTest",
+    "LabTestsData",
+    "LabTestUrgency",
     "AnswerStateData",
     # envelopes
     "SummaryBlock",
@@ -263,5 +291,6 @@ __all__ = [
     "ConditionListBlock",
     "DecisionBlock",
     "OtcMedicationsBlock",
+    "LabTestsBlock",
     "AnswerStateBlock",
 ]

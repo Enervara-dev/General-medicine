@@ -67,6 +67,7 @@ export type Block =
   | { type: "condition_list";      data: { conditions: { name: string; likelihood: string | null; description: string | null }[] } }
   | { type: "decision";            data: { verdict: "yes" | "no" | "possibly" | "seek_urgent_care" | "insufficient_information"; rationale: string } }
   | { type: "otc_medications";     data: { medications: { name: string; purpose: string; dosage: string | null; caution: string | null }[] } }
+  | { type: "lab_tests";           data: { tests: { name: string; reason: string; urgency: "routine" | "soon" | "urgent" | null }[] } }
   | { type: "answer_state";        data: { show_doctor_summary: boolean } };   // control block, always last
 
 export interface ChatTurn { query: string; session_id?: string; user_id?: string }
@@ -131,6 +132,7 @@ Render blocks **in the order received** (don't reorder by type). `data` shapes a
 | `next_steps` | `{ steps: string[] }` | A "What to do" list (numbered/ordered). Linkify any phone numbers as `tel:`. |
 | `follow_up_questions` | `{ questions: string[] }` (≤1 item) | A single suggested-reply **chip**. Tapping it sends its text as the next turn's `query`. |
 | `otc_medications` | `{ medications: [{ name, purpose, dosage: string\|null, caution: string\|null }] }` | A "Over-the-counter options" card list, shown **last**. One row per medicine: **name** (bold), `purpose` (what it helps), `dosage` badge if present, and `caution` as a subtle warning line if present. These are self-care OTC suggestions only — a good place for a small "not a prescription — check with a pharmacist" disclaimer. |
+| `lab_tests` | `{ tests: [{ name, reason, urgency: "routine"\|"soon"\|"urgent"\|null }] }` | A "Recommended tests / investigations" card list, shown near the end (before `otc_medications`). One row per test: **name** (bold), `reason` (why it's suggested), and an `urgency` badge if present (`urgent` red, `soon` amber, `routine`/null neutral). These are suggested investigations to discuss with a doctor/lab, **not orders** — good spot for a "confirm with your doctor" note and a future "book a test" CTA. |
 | `answer_state` | `{ show_doctor_summary: boolean }` | **Control block, not a message — don't render it.** It's always the **very last** block of every turn. Read `show_doctor_summary`: when `true`, reveal a **"Show this to your doctor"** button that calls `POST /chat/soap` (see below). Once true it stays true for the session. |
 
 ### Guarantees you can build on (don't code defensively around these)
@@ -422,6 +424,7 @@ Each line is `{"type": ..., "data": {...}}`. Block types:
 | `condition_list` | `{ conditions: [{ name, likelihood: string\|null, description: string\|null }] }` |
 | `decision` | `{ verdict: "yes"\|"no"\|"possibly"\|"seek_urgent_care"\|"insufficient_information", rationale }` |
 | `otc_medications` | `{ medications: [{ name, purpose, dosage: string\|null, caution: string\|null }] }` |
+| `lab_tests` | `{ tests: [{ name, reason, urgency: "routine"\|"soon"\|"urgent"\|null }] }` |
 | `answer_state` | `{ show_doctor_summary: boolean }` (control block — always last, don't render) |
 
 Field notes:
@@ -429,6 +432,7 @@ Field notes:
 - `condition_list[].likelihood`, when present, is human text like `"most likely" | "possible" | "less likely"` — render as a label/badge; it may be `null`.
 - `decision.verdict` is one of exactly five values — render as a colored verdict pill/banner. On a decision-type turn this block leads (no `summary`); the rest of the turn (`key_points` / `warning` / `next_steps`) supports it. A `seek_urgent_care` verdict always comes with a `critical` `warning`.
 - `otc_medications` appears **only on a concluded answer** (the final assessment or a decision turn), always as the **last** block, and only when safe self-care applies — you won't get it mid-consultation or on educational/emergency turns. `name` + `purpose` are always present; `dosage` and `caution` may be `null`. These are OTC (over-the-counter) suggestions only, never prescriptions.
+- `lab_tests` appears **only on a concluded answer** (final assessment or a decision turn), when investigations would confirm/narrow the diagnosis — not mid-consultation, not on educational/emergency turns. It sits near the end, just before `otc_medications`. `name` + `reason` are always present; `urgency` may be `null`. These are suggested investigations to discuss with a doctor/lab, **not orders**.
 - `answer_state` is a **control block, not content** — it's emitted as the final block of every turn and carries `show_doctor_summary`. Don't render it; use it to toggle the "Show this to your doctor" affordance. The flag is **sticky** (once `true`, stays `true` for the session).
 - `follow_up_questions.questions` never has more than one item (see guarantees below).
 - Blocks arrive in a sensible reading order (e.g. `summary` first, `next_steps`/`follow_up_questions` last). Render them in the order received; don't reorder by type.
