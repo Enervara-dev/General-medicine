@@ -18,6 +18,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, s
 from fastapi.responses import StreamingResponse
 
 from app.api.deps import ContainerDep
+from app.identity import IdentityContext
 from app.schemas.chat import (
     ChatRequest,
     ChatResponse,
@@ -31,6 +32,30 @@ from app.services.media import MediaArtifact, MediaValidationError
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["chat"])
+
+
+def _resolve_identity(
+    *,
+    ctx: ContainerDep,
+    request_id: str,
+    session_id: str,
+    user_id: str | None,
+    envelope=None,
+) -> IdentityContext:
+    """
+    Build the canonical IdentityContext from either the new ``identity`` envelope
+    or the legacy ``user_id``/``session_id`` fields. Parsing always accepts both;
+    ``ENABLE_IDENTITY_V1`` only controls whether the envelope is preferred.
+    """
+    return IdentityContext.resolve(
+        request_id=request_id,
+        legacy_session_id=session_id,
+        legacy_user_id=user_id,
+        envelope_session_id=(envelope.session_id if envelope else None),
+        envelope_patient_id=((envelope.patient_id or envelope.user_id) if envelope else None),
+        envelope_consumer_id=(envelope.consumer_id if envelope else None),
+        identity_v1_enabled=ctx.settings.ENABLE_IDENTITY_V1,
+    )
 
 
 def _media_info(artifact: MediaArtifact) -> MediaInfo:
@@ -56,12 +81,11 @@ async def chat(req: ChatRequest, request: Request, ctx: ContainerDep) -> ChatRes
     optional episodic context, then asks Gemini for a non-streaming answer.
     """
     request_id = _request_id(request)
-    result = await ctx.orchestrator.run(
-        query=req.query,
-        session_id=req.session_id,
-        user_id=req.user_id,
-        request_id=request_id,
+    identity = _resolve_identity(
+        ctx=ctx, request_id=request_id, session_id=req.session_id,
+        user_id=req.user_id, envelope=req.identity,
     )
+    result = await ctx.orchestrator.run(query=req.query, identity=identity)
     return ChatResponse(
         answer=result.answer,
         session_id=result.session_id,
@@ -119,11 +143,13 @@ async def chat_image(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
 
     sid = session_id or uuid.uuid4().hex
+    # Multipart image upload carries the legacy Form fields (no JSON envelope).
+    identity = _resolve_identity(
+        ctx=ctx, request_id=request_id, session_id=sid, user_id=user_id, envelope=None
+    )
     result = await ctx.orchestrator.run(
         query=media_result.effective_query,
-        session_id=sid,
-        user_id=user_id,
-        request_id=request_id,
+        identity=identity,
         media=media_result.attachment,
     )
     return ImageChatResponse(
@@ -155,7 +181,13 @@ async def chat_soap(req: SoapRequest, request: Request, ctx: ContainerDep) -> So
     from app.services.soap import generate_soap_async
 
     request_id = _request_id(request)
-    bundle = await load_session(ctx.session_manager, req.session_id, user_id=req.user_id)
+    identity = _resolve_identity(
+        ctx=ctx, request_id=request_id, session_id=req.session_id,
+        user_id=req.user_id, envelope=req.identity,
+    )
+    bundle = await load_session(
+        ctx.session_manager, identity.session_id, user_id=identity.user_id
+    )
     if bundle.session.total_messages == 0:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -167,7 +199,7 @@ async def chat_soap(req: SoapRequest, request: Request, ctx: ContainerDep) -> So
     )
     return SoapNote(
         **sections,
-        session_id=req.session_id,
+        session_id=identity.session_id,
         request_id=request_id,
         generated_at=datetime.now(tz=timezone.utc).isoformat(),
     )
@@ -186,13 +218,12 @@ async def chat_blocks(req: ChatRequest, request: Request, ctx: ContainerDep) -> 
     next_steps, condition_list. Each line is `{"type": ..., "data": {...}}`.
     """
     request_id = _request_id(request)
+    identity = _resolve_identity(
+        ctx=ctx, request_id=request_id, session_id=req.session_id,
+        user_id=req.user_id, envelope=req.identity,
+    )
     ndjson = _to_ndjson(
-        ctx.orchestrator.stream_blocks(
-            query=req.query,
-            session_id=req.session_id,
-            user_id=req.user_id,
-            request_id=request_id,
-        )
+        ctx.orchestrator.stream_blocks(query=req.query, identity=identity)
     )
     return StreamingResponse(
         ndjson,
@@ -219,13 +250,12 @@ async def chat_stream_blocks(req: ChatRequest, request: Request, ctx: ContainerD
     transport framing differs.
     """
     request_id = _request_id(request)
+    identity = _resolve_identity(
+        ctx=ctx, request_id=request_id, session_id=req.session_id,
+        user_id=req.user_id, envelope=req.identity,
+    )
     sse_blocks = _blocks_to_sse(
-        ctx.orchestrator.stream_blocks(
-            query=req.query,
-            session_id=req.session_id,
-            user_id=req.user_id,
-            request_id=request_id,
-        )
+        ctx.orchestrator.stream_blocks(query=req.query, identity=identity)
     )
     return StreamingResponse(
         sse_blocks,
@@ -250,13 +280,12 @@ async def chat_stream(req: ChatRequest, request: Request, ctx: ContainerDep) -> 
         {"type":"error","error":{...}}   terminal error
     """
     request_id = _request_id(request)
+    identity = _resolve_identity(
+        ctx=ctx, request_id=request_id, session_id=req.session_id,
+        user_id=req.user_id, envelope=req.identity,
+    )
     sse_stream = _to_sse(
-        ctx.orchestrator.stream(
-            query=req.query,
-            session_id=req.session_id,
-            user_id=req.user_id,
-            request_id=request_id,
-        )
+        ctx.orchestrator.stream(query=req.query, identity=identity)
     )
     return StreamingResponse(
         sse_stream,

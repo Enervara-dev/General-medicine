@@ -42,6 +42,7 @@ from graphrag.query_understanding import (
 
 if TYPE_CHECKING:
     from app.container import AppContainer
+    from app.identity import IdentityContext
     from app.services.media.types import MediaAttachment
     from graphrag.schemas.blocks import Block
 
@@ -72,19 +73,24 @@ class AsyncOrchestrator:
         self,
         *,
         query: str,
-        session_id: str,
-        user_id: str | None,
-        request_id: str,
+        identity: "IdentityContext",
         media: "MediaAttachment | None" = None,
     ) -> ChatResult:
         """
         Run one full pipeline turn.
+
+        Identity is carried by ``identity`` (patient + session + request id); the
+        raw id strings are extracted here at the boundary for the existing stores.
 
         ``media`` (optional) folds an uploaded image into the turn: its raw parts
         are sent to the answer LLM (photo route only), its extracted text is
         injected as answer context, and a metadata-only note is recorded in
         memory. When ``media`` is None this is the unchanged text-only flow.
         """
+        session_id = identity.session_id
+        user_id = identity.user_id
+        request_id = identity.request_id
+
         timing: dict[str, int] = {}
         t0 = time.monotonic()
 
@@ -253,7 +259,7 @@ class AsyncOrchestrator:
 
         # Stage 5: Episodic ingest (fire-and-forget; never blocks response)
         if user_id and self._c.episodic is not None:
-            asyncio.create_task(self._ingest_episodic_safe(user_id=user_id, utterance=stored_query))
+            asyncio.create_task(self._ingest_episodic_safe(identity=identity, utterance=stored_query))
 
         # Stage 5b: Session save
         with _Stage("session_save", timing):
@@ -294,9 +300,7 @@ class AsyncOrchestrator:
         self,
         *,
         query: str,
-        session_id: str,
-        user_id: str | None,
-        request_id: str,
+        identity: "IdentityContext",
     ) -> AsyncIterator[dict[str, Any]]:
         """
         Yield SSE-shaped events as the pipeline progresses.
@@ -314,6 +318,10 @@ class AsyncOrchestrator:
         from app.services.llm.streaming import stream_gemini_tokens
         from graphrag.config.settings import settings as cfg
         from graphrag.llm.gemini_client import DEFAULT_MODEL
+
+        session_id = identity.session_id
+        user_id = identity.user_id
+        request_id = identity.request_id
 
         timing: dict[str, int] = {}
         t0 = time.monotonic()
@@ -479,7 +487,7 @@ class AsyncOrchestrator:
             # ------------------------------------------------------------------
             if user_id and self._c.episodic is not None:
                 asyncio.create_task(
-                    self._ingest_episodic_safe(user_id=user_id, utterance=query)
+                    self._ingest_episodic_safe(identity=identity, utterance=query)
                 )
 
             with _Stage("session_save", timing):
@@ -508,9 +516,7 @@ class AsyncOrchestrator:
         self,
         *,
         query: str,
-        session_id: str,
-        user_id: str | None,
-        request_id: str,
+        identity: "IdentityContext",
     ) -> "AsyncIterator[Block]":
         """
         STAGE-4 answer as a stream of validated UI blocks.
@@ -528,6 +534,10 @@ class AsyncOrchestrator:
         from graphrag.llm.gemini_client import DEFAULT_MODEL
         from graphrag.processors.entity_processor import EntityProcessor
         from graphrag.validators.answer_validator import aiter_blocks, render_blocks_text
+
+        session_id = identity.session_id
+        user_id = identity.user_id
+        request_id = identity.request_id
 
         emitted: list["Block"] = []
         try:
@@ -673,7 +683,7 @@ class AsyncOrchestrator:
             yield _answer_state_block(session.doctor_summary_ready)
 
             if user_id and self._c.episodic is not None:
-                asyncio.create_task(self._ingest_episodic_safe(user_id=user_id, utterance=query))
+                asyncio.create_task(self._ingest_episodic_safe(identity=identity, utterance=query))
 
             await save_after_turn(
                 self._c.session_manager,
@@ -779,11 +789,33 @@ class AsyncOrchestrator:
             logger.warning("Episodic context load failed: %s", exc)
             return ""
 
-    async def _ingest_episodic_safe(self, *, user_id: str, utterance: str) -> None:
+    async def _ingest_episodic_safe(
+        self, *, identity: "IdentityContext", utterance: str
+    ) -> None:
+        """
+        Ingest the turn into episodic memory (existing behaviour) AND, once the
+        clinical extractor has produced an episode, hand that episode to the PMS
+        producer. This is THE integration point after clinical extraction — the
+        producer's wired client is NullPMSClient today, so nothing is sent yet.
+        """
         try:
-            await self._c.episodic.ingest_pipeline.run(user_id=user_id, utterance=utterance)
+            result = await self._c.episodic.ingest_pipeline.run(
+                user_id=identity.user_id, utterance=utterance
+            )
         except Exception as exc:
             logger.warning("Episodic ingest failed: %s", exc)
+            return
+
+        # ── PMS producer: emit ClinicalMemoryEventV1 AFTER extraction ─────────
+        # `result.stored` is the freshly-extracted, persisted Episode. Emitting
+        # is fail-open and (today) a no-op sink, so the turn is never affected.
+        episode = getattr(result, "stored", None)
+        if episode is not None:
+            from app.services.pms import ClinicalMemoryProducer
+
+            await ClinicalMemoryProducer(self._c.pms).emit_from_episode(
+                identity=identity, episode=episode
+            )
 
     @staticmethod
     def _extract_followups(analysis: dict[str, Any] | None) -> list[str]:

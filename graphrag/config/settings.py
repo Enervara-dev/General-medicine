@@ -156,6 +156,23 @@ class Settings(BaseSettings):
     # Short timeouts so a slow/unreachable Mongo never stalls a chat turn.
     MONGO_TIMEOUT_MS: int = 3000
 
+    # ----- PMS (Patient Memory Service) — shadow producer, OFF by default -----
+    # Master rollout flag. FALSE (production default) → NullPMSClient: no HTTP,
+    # no latency, no behaviour change. TRUE → HttpPMSClient in fire-and-forget
+    # SHADOW mode (chat never waits for PMS; PMS failures never affect users).
+    ENABLE_PMS_SHADOW: bool = False
+    # Identity-v1 rollout signal. Inbound parsing ALWAYS accepts both the legacy
+    # (user_id/session_id) and new (identity envelope) formats regardless; this
+    # flag only controls whether the new envelope is preferred at resolution.
+    ENABLE_IDENTITY_V1: bool = True
+    # PMS connection (only used when ENABLE_PMS_SHADOW=true; unset → NullPMSClient).
+    PMS_BASE_URL: Optional[str] = None
+    PMS_API_KEY: Optional[str] = None
+    PMS_INGEST_PATH: str = "/v1/clinical-memory/events"
+    PMS_TIMEOUT_MS: int = 1500        # short — background call, keep it snappy
+    PMS_MAX_RETRIES: int = 1          # bounded retry on transient/5xx only
+    PMS_CONSUMER_ID: str = "general-medicine"   # GM's identity toward PMS
+
     # ----- PostgreSQL (longitudinal memory; required for new memory/ subsystem) -----
     DATABASE_URL: Optional[str] = None
     MEMORY_CACHE_TTL_SEC: int = 300

@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from app.services.demographics import DemographicsService
     from app.services.media import MediaPipeline
     from app.services.orchestration.pipeline import AsyncOrchestrator
+    from app.services.pms import PMSClient
     from episodic.api.dependencies import EpisodicContainer
     from graphrag.config.settings import Settings
     from graphrag.llm.gemini_llm import GeminiLLM
@@ -48,6 +49,9 @@ class AppContainer:
     episodic: "EpisodicContainer | None"
     media_pipeline: "MediaPipeline"
     demographics: "DemographicsService"
+    # Sink for longitudinal clinical-memory events. Default NullPMSClient (no-op)
+    # so nothing is sent yet; swap for the real HTTP client when PMS is ready.
+    pms: "PMSClient"
     orchestrator: "AsyncOrchestrator"
 
     async def aclose(self) -> None:
@@ -64,6 +68,13 @@ class AppContainer:
             self.demographics.close()
         except Exception as exc:
             logger.warning("demographics close failed: %s", exc)
+        # Close the PMS HTTP client's pool if the active client has one.
+        pms_close = getattr(self.pms, "aclose", None)
+        if callable(pms_close):
+            try:
+                await pms_close()
+            except Exception as exc:
+                logger.warning("pms client close failed: %s", exc)
 
     # Readiness helpers
     async def ping_pinecone(self) -> None:
@@ -121,6 +132,7 @@ async def build_container() -> AppContainer:
             logger.warning("Episodic container disabled at boot: %s", exc)
 
     from app.services.demographics import build_demographics_service
+    from app.services.pms import build_pms_client
 
     container = AppContainer(
         settings=settings,
@@ -132,6 +144,9 @@ async def build_container() -> AppContainer:
         episodic=episodic,
         media_pipeline=MediaPipeline.from_settings(settings),
         demographics=build_demographics_service(settings),
+        # NullPMSClient by default (no HTTP, no behaviour change). Becomes the
+        # fire-and-forget HttpPMSClient only when ENABLE_PMS_SHADOW=true.
+        pms=build_pms_client(settings),
         orchestrator=None,  # type: ignore[arg-type]  # filled below
     )
     container.orchestrator = AsyncOrchestrator(container)

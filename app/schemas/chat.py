@@ -8,6 +8,21 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 
+class IdentityEnvelope(BaseModel):
+    """
+    New identity contract the Backend MAY send alongside (or instead of) the
+    legacy top-level ``user_id``/``session_id``. Fully optional and additive —
+    absent → the legacy fields are used, so existing callers are unaffected.
+    """
+
+    # ``patient_id`` is the authenticated Mongo User._id; ``user_id`` is accepted
+    # as an alias so either naming works during the Backend rollout.
+    patient_id: str | None = None
+    user_id: str | None = None
+    session_id: str | None = None
+    consumer_id: str | None = None   # which upstream consumer/service initiated
+
+
 class ChatRequest(BaseModel):
     query: str = Field(min_length=1, max_length=4000)
     session_id: str = Field(default_factory=lambda: uuid4().hex)
@@ -15,6 +30,9 @@ class ChatRequest(BaseModel):
     # the LLM call and ingests the turn after the answer. When omitted, the
     # episodic stage is skipped (parity with the CLI's --user-id flag).
     user_id: str | None = None
+    # New identity contract (optional). Preferred over the legacy fields above
+    # when ENABLE_IDENTITY_V1 is on; ignored/absent keeps legacy behaviour.
+    identity: IdentityEnvelope | None = None
 
 
 class ChatResponse(BaseModel):
@@ -61,6 +79,7 @@ class SoapRequest(BaseModel):
 
     session_id: str = Field(min_length=1)
     user_id: str | None = None
+    identity: IdentityEnvelope | None = None
 
 
 class SoapNote(BaseModel):
