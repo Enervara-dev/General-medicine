@@ -1,0 +1,102 @@
+name: Deploy to ECS
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  AWS_REGION: eu-north-1
+  ECR_REPOSITORY: enervera-api
+  ECS_CLUSTER: enervera-api-cluster
+  ECS_SERVICE: enervera-api-service
+  ECS_TASK_FAMILY: enervera-api
+  CONTAINER_NAME: enervera-api
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          pip install -e ".[api,test]"
+          pip install ruff
+
+      - name: Lint
+        continue-on-error: true
+        run: ruff check .
+
+      - name: Tests
+        run: pytest -m "not episodic_integration" -q
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::341208406542:role/enervera-api-github-actions
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push image
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          docker build --platform linux/amd64 \
+            -t $REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG \
+            -t $REGISTRY/$ECR_REPOSITORY:latest .
+          docker push $REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+          docker push $REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Render new task definition
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          aws ecs describe-task-definition --task-definition $ECS_TASK_FAMILY --query taskDefinition > taskdef.json
+          python - <<'PY'
+          import json, os
+          with open('taskdef.json') as f:
+              td = json.load(f)
+          for k in ['taskDefinitionArn','revision','status','requiresAttributes',
+                    'compatibilities','registeredAt','registeredBy','deregisteredAt']:
+              td.pop(k, None)
+          image = "{}/{}:{}".format(os.environ['REGISTRY'], os.environ['ECR_REPOSITORY'], os.environ['IMAGE_TAG'])
+          for c in td['containerDefinitions']:
+              if c['name'] == os.environ['CONTAINER_NAME']:
+                  c['image'] = image
+          with open('new-taskdef.json', 'w') as f:
+              json.dump(td, f)
+          print("rendered image:", image)
+          PY
+
+      - name: Register and deploy
+        run: |
+          ARN=$(aws ecs register-task-definition \
+            --cli-input-json file://new-taskdef.json \
+            --query 'taskDefinition.taskDefinitionArn' --output text)
+          echo "Deploying $ARN"
+          aws ecs update-service --cluster $ECS_CLUSTER --service $ECS_SERVICE --task-definition $ARN
+          aws ecs wait services-stable --cluster $ECS_CLUSTER --services $ECS_SERVICE
+
+      - name: Smoke test
+        run: curl -fsS https://api.enervara.com/health
