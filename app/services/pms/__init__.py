@@ -17,6 +17,7 @@ clinical memory. This package defines:
 Nothing here calls PMS. The future HTTP client is a documented placeholder.
 """
 
+from app.services.pms.auth import StaticTokenProvider, TokenProvider
 from app.services.pms.client import (
     HttpPMSClient,
     NullPMSClient,
@@ -48,5 +49,7 @@ __all__ = [
     "HttpPMSClient",
     "NullPMSClient",
     "PMSClient",
+    "StaticTokenProvider",
+    "TokenProvider",
     "build_pms_client",
 ]

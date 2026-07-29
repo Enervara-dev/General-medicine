@@ -1,20 +1,24 @@
 """
-PMS client abstraction — INTERFACE ONLY. Nothing here calls a PMS.
+PMS client — transport implementations behind the PMSClient interface.
 
     PMSClient      — the Protocol every implementation satisfies.
-    NullPMSClient  — the default wired today: a no-op that does NOT emit
-                     anywhere, so existing behaviour is byte-for-byte unchanged.
-    HttpPMSClient  — a documented PLACEHOLDER for the future HTTP client. It is
-                     NOT wired and NOT instantiated; calling it raises so no one
-                     accidentally ships a half-built integration.
+    NullPMSClient  — the default (ENABLE_PMS_SHADOW=false): a no-op that emits
+                     nowhere, so existing behaviour is byte-for-byte unchanged.
+    HttpPMSClient  — the production client (ENABLE_PMS_SHADOW=true): Bearer-JWT
+                     authenticated, pooled, timeout-bounded, transient-retrying,
+                     secret/PHI-safe logging, and isolated from the user path.
+    build_pms_client(settings) — selects one from config, failing safe to Null.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from app.services.pms.events import ClinicalMemoryEventV1
+
+if TYPE_CHECKING:
+    from app.services.pms.auth import TokenProvider
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +80,10 @@ class HttpPMSClient:
         transport: object | None = None,  # injectable for tests (httpx.MockTransport)
     ) -> None:
         import httpx
+
+        # httpx logs each request line (incl. the full URL) at INFO. Quiet it so
+        # the internal PMS URL never lands in logs (security requirement).
+        logging.getLogger("httpx").setLevel(logging.WARNING)
 
         self._path = ingest_path
         self._consumer_id = consumer_id
