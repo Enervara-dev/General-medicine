@@ -166,12 +166,20 @@ class Settings(BaseSettings):
     # flag only controls whether the new envelope is preferred at resolution.
     ENABLE_IDENTITY_V1: bool = True
     # PMS connection (only used when ENABLE_PMS_SHADOW=true; unset → NullPMSClient).
+    # PMS_BASE_URL is the internal ALB URL, read from config — never hardcoded.
     PMS_BASE_URL: Optional[str] = None
-    PMS_API_KEY: Optional[str] = None
     PMS_INGEST_PATH: str = "/v1/clinical-memory/events"
-    PMS_TIMEOUT_MS: int = 1500        # short — background call, keep it snappy
-    PMS_MAX_RETRIES: int = 1          # bounded retry on transient/5xx only
+    # Service JWT for `Authorization: Bearer`. Provisioned out-of-band by the
+    # configured auth component (secret manager / env) — never hardcoded. Without
+    # it the client refuses to send (no anonymous PMS requests).
+    PMS_SERVICE_JWT: Optional[str] = None
+    # Separate connect + read timeouts (short — this is a background call).
+    PMS_CONNECT_TIMEOUT_MS: int = 1000
+    PMS_READ_TIMEOUT_MS: int = 1500
+    PMS_MAX_RETRIES: int = 1          # bounded retry on transient (timeout/5xx/429) only
     PMS_CONSUMER_ID: str = "general-medicine"   # GM's identity toward PMS
+    # Legacy single-timeout knob — kept for back-compat; connect/read above win.
+    PMS_TIMEOUT_MS: int = 1500
 
     # ----- PostgreSQL (longitudinal memory; required for new memory/ subsystem) -----
     DATABASE_URL: Optional[str] = None

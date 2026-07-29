@@ -45,29 +45,33 @@ class NullPMSClient:
 
 class HttpPMSClient:
     """
-    SHADOW-mode PMS HTTP client. Used only when ENABLE_PMS_SHADOW=true.
+    Production PMS HTTP client. Active only when ENABLE_PMS_SHADOW=true.
 
-    Contract with the rest of the system:
-      * It is ONLY ever called from the existing fire-and-forget background task,
-        so chat never waits on it.
-      * ``ingest_clinical_memory`` NEVER raises — every error is caught + logged,
-        so a PMS outage can never surface to a user.
-      * Short timeout + a pooled, reused ``httpx.AsyncClient``.
-      * Bounded retry on transient/5xx only (never on 4xx).
+    Guarantees for the rest of the system:
+      * Called ONLY from the existing fire-and-forget background task, so chat
+        never waits on it and PMS latency can't affect the user response.
+      * Every request carries `Authorization: Bearer <service JWT>` (never
+        anonymous). The token is obtained from an injected TokenProvider.
+      * ``ingest_clinical_memory`` never propagates to the user path; every
+        outcome — success and failure — is LOGGED with structure (never
+        swallowed silently).
+      * Pooled, reused ``httpx.AsyncClient`` with separate connect + read
+        timeouts. Bounded retry on TRANSIENT failures only (timeout / network /
+        5xx / 429); validation (4xx) and auth (401/403) are NOT retried.
 
-    A transient ``event_id`` is minted per call for tracing / idempotency only —
-    it is a log+header correlation token, NOT part of the (frozen) event schema
-    and NOT a patient identifier.
+    Security: logs never contain the token, patient identifiers, clinical text,
+    or the internal URL — correlation is via request_id + a transient event_id.
     """
 
     def __init__(
         self,
         *,
         base_url: str,
+        token_provider: "TokenProvider",
         ingest_path: str = "/v1/clinical-memory/events",
-        api_key: Optional[str] = None,
         consumer_id: str = "general-medicine",
-        timeout_ms: int = 1500,
+        connect_timeout_ms: int = 1000,
+        read_timeout_ms: int = 1500,
         max_retries: int = 1,
         transport: object | None = None,  # injectable for tests (httpx.MockTransport)
     ) -> None:
@@ -75,15 +79,18 @@ class HttpPMSClient:
 
         self._path = ingest_path
         self._consumer_id = consumer_id
+        self._token_provider = token_provider
         self._max_retries = max(0, int(max_retries))
-        headers = {"X-Consumer-Id": consumer_id}
-        if api_key:
-            headers["X-API-Key"] = api_key
         self._client = httpx.AsyncClient(
             base_url=base_url,
-            timeout=httpx.Timeout(timeout_ms / 1000.0),
+            timeout=httpx.Timeout(
+                connect=connect_timeout_ms / 1000.0,
+                read=read_timeout_ms / 1000.0,
+                write=read_timeout_ms / 1000.0,
+                pool=connect_timeout_ms / 1000.0,
+            ),
             limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
-            headers=headers,
+            headers={"X-Consumer-Id": consumer_id},  # non-secret routing header
             transport=transport,  # None → default pooled transport
         )
 
@@ -94,46 +101,109 @@ class HttpPMSClient:
         import httpx
 
         event_id = uuid.uuid4().hex           # transient trace/idempotency token
+        request_id = event.request_id or "-"
         payload = event.model_dump(mode="json")
-        t0 = time.monotonic()
 
-        attempt = 0
+        # --- Authenticate: obtain a service JWT; NEVER send anonymously. ------
+        try:
+            token = await self._token_provider.get_token()
+        except Exception as exc:  # noqa: BLE001
+            self._log(request_id, event_id, outcome="auth_error", status="-",
+                      duration_ms=0.0, retries=0, timeouts=0, reason=type(exc).__name__)
+            return
+        if not token:
+            self._log(request_id, event_id, outcome="auth_missing", status="-",
+                      duration_ms=0.0, retries=0, timeouts=0, reason="no_service_jwt")
+            return
+        headers = {"Authorization": f"Bearer {token}", "Idempotency-Key": event_id}
+
+        # --- Send with bounded, transient-only retry --------------------------
+        t0 = time.monotonic()
+        retries = 0
+        timeouts = 0
         while True:
             try:
-                resp = await self._client.post(
-                    self._path, json=payload, headers={"Idempotency-Key": event_id}
-                )
-                latency_ms = (time.monotonic() - t0) * 1000.0
-                success = resp.status_code < 400
-                self._log(event, event_id, latency_ms, success, str(resp.status_code))
-                # Retry only transient 5xx, and only within the bounded budget.
-                if success or resp.status_code < 500 or attempt >= self._max_retries:
-                    return
-            except httpx.TransportError as exc:  # includes timeouts
-                latency_ms = (time.monotonic() - t0) * 1000.0
-                if attempt >= self._max_retries:
-                    self._log(event, event_id, latency_ms, False, f"transport:{exc!r}")
-                    return
-            except Exception as exc:  # noqa: BLE001 — never propagate to the user
-                latency_ms = (time.monotonic() - t0) * 1000.0
-                self._log(event, event_id, latency_ms, False, f"error:{exc!r}")
+                resp = await self._client.post(self._path, json=payload, headers=headers)
+            except httpx.TimeoutException as exc:
+                timeouts += 1
+                if retries < self._max_retries:
+                    retries += 1
+                    await self._backoff(retries)
+                    continue
+                self._log(request_id, event_id, outcome="failure", status="timeout",
+                          duration_ms=(time.monotonic() - t0) * 1000.0,
+                          retries=retries, timeouts=timeouts, reason=type(exc).__name__)
                 return
-            attempt += 1
+            except httpx.TransportError as exc:  # connect/network errors
+                if retries < self._max_retries:
+                    retries += 1
+                    await self._backoff(retries)
+                    continue
+                self._log(request_id, event_id, outcome="failure", status="network",
+                          duration_ms=(time.monotonic() - t0) * 1000.0,
+                          retries=retries, timeouts=timeouts, reason=type(exc).__name__)
+                return
+            except Exception as exc:  # noqa: BLE001 — log, never propagate to user
+                self._log(request_id, event_id, outcome="error", status="-",
+                          duration_ms=(time.monotonic() - t0) * 1000.0,
+                          retries=retries, timeouts=timeouts, reason=type(exc).__name__)
+                return
+
+            duration_ms = (time.monotonic() - t0) * 1000.0
+            sc = resp.status_code
+
+            if 200 <= sc < 300:
+                # Success. We intentionally do not parse/use the body for
+                # ingestion; validation is limited to the status code.
+                self._log(request_id, event_id, outcome="success", status=str(sc),
+                          duration_ms=duration_ms, retries=retries, timeouts=timeouts, reason="-")
+                return
+            if sc in (401, 403):
+                # Auth failure — retrying with the same token won't help; a fresh
+                # token is obtained on the next turn.
+                self._log(request_id, event_id, outcome="auth_failure", status=str(sc),
+                          duration_ms=duration_ms, retries=retries, timeouts=timeouts,
+                          reason="unauthorized")
+                return
+            if sc == 429 or sc >= 500:
+                if retries < self._max_retries:
+                    retries += 1
+                    await self._backoff(retries)
+                    continue
+                self._log(request_id, event_id, outcome="failure", status=str(sc),
+                          duration_ms=duration_ms, retries=retries, timeouts=timeouts,
+                          reason="transient")
+                return
+            # Any other 4xx → validation/rejection. Do NOT retry.
+            self._log(request_id, event_id, outcome="rejected", status=str(sc),
+                      duration_ms=duration_ms, retries=retries, timeouts=timeouts,
+                      reason="validation")
+            return
+
+    @staticmethod
+    async def _backoff(retries: int) -> None:
+        import asyncio
+
+        await asyncio.sleep(min(0.5, 0.1 * retries))  # short — background call
 
     def _log(
         self,
-        event: ClinicalMemoryEventV1,
+        request_id: str,
         event_id: str,
-        latency_ms: float,
-        success: bool,
+        *,
+        outcome: str,
         status: str,
+        duration_ms: float,
+        retries: int,
+        timeouts: int,
+        reason: str,
     ) -> None:
-        # PHI-safe: ids + timing only. Never the summary / entities / clinical text.
+        # SECURITY: no token, no patient id, no clinical text, no internal URL.
         logger.info(
-            "pms_shadow request_id=%s patient_id=%s… consumer_id=%s event_id=%s "
-            "latency_ms=%.0f success=%s status=%s",
-            event.request_id, event.patient_id[:6], self._consumer_id, event_id,
-            latency_ms, success, status,
+            "pms_ingest request_id=%s event_id=%s consumer_id=%s outcome=%s "
+            "status=%s duration_ms=%.0f retries=%d timeouts=%d reason=%s",
+            request_id, event_id, self._consumer_id, outcome, status,
+            duration_ms, retries, timeouts, reason or "-",
         )
 
     async def aclose(self) -> None:
@@ -149,9 +219,15 @@ def build_pms_client(settings) -> PMSClient:
     misconfiguration can never break chat:
 
         ENABLE_PMS_SHADOW=false (production default) → NullPMSClient (no HTTP).
-        ENABLE_PMS_SHADOW=true  + PMS_BASE_URL set   → HttpPMSClient (shadow).
+        ENABLE_PMS_SHADOW=true  + PMS_BASE_URL set   → HttpPMSClient.
         ENABLE_PMS_SHADOW=true  + PMS_BASE_URL unset → NullPMSClient (+ warn).
+
+    The base URL is read from config (never hardcoded) and never logged. The
+    service JWT comes from a StaticTokenProvider(PMS_SERVICE_JWT); if it's unset
+    the client will simply not send (no anonymous requests).
     """
+    from app.services.pms.auth import StaticTokenProvider
+
     if not getattr(settings, "ENABLE_PMS_SHADOW", False):
         return NullPMSClient()
 
@@ -162,13 +238,19 @@ def build_pms_client(settings) -> PMSClient:
         )
         return NullPMSClient()
 
-    logger.info("PMS shadow mode ON — HttpPMSClient → %s", base_url)
+    if not getattr(settings, "PMS_SERVICE_JWT", None):
+        logger.warning(
+            "PMS shadow ON but PMS_SERVICE_JWT is unset — requests will be skipped "
+            "(no anonymous PMS calls)."
+        )
+    logger.info("PMS shadow mode ON — HttpPMSClient active.")  # no URL in logs
     return HttpPMSClient(
         base_url=base_url,
+        token_provider=StaticTokenProvider(settings.PMS_SERVICE_JWT),
         ingest_path=settings.PMS_INGEST_PATH,
-        api_key=settings.PMS_API_KEY,
         consumer_id=settings.PMS_CONSUMER_ID,
-        timeout_ms=settings.PMS_TIMEOUT_MS,
+        connect_timeout_ms=settings.PMS_CONNECT_TIMEOUT_MS,
+        read_timeout_ms=settings.PMS_READ_TIMEOUT_MS,
         max_retries=settings.PMS_MAX_RETRIES,
     )
 
