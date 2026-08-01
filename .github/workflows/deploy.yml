@@ -9,8 +9,8 @@ env:
   AWS_REGION: eu-north-1
   ECR_REPOSITORY: enervera-api
   ECS_CLUSTER: enervera-api-cluster
-  ECS_SERVICE: enervera-api-service
-  ECS_TASK_FAMILY: enervera-api
+  ECS_SERVICE: enervera-api-ec2-service
+  ECS_TASK_FAMILY: enervera-api-ec2
   CONTAINER_NAME: enervera-api
 
 permissions:
