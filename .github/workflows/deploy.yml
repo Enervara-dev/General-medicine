@@ -6,12 +6,12 @@ on:
   workflow_dispatch:
 
 env:
-  AWS_REGION: eu-north-1
-  ECR_REPOSITORY: enervera-api
-  ECS_CLUSTER: enervera-api-cluster
-  ECS_SERVICE: enervera-api-ec2-service
-  ECS_TASK_FAMILY: enervera-api-ec2
-  CONTAINER_NAME: enervera-api
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: enervara-api
+  ECS_CLUSTER: enervara-mumbai-cluster
+  ECS_SERVICE: enervara-api-service
+  ECS_TASK_FAMILY: enervara-api
+  CONTAINER_NAME: enervara-api
 
 permissions:
   contents: read
