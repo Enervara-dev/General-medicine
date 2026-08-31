@@ -1,6 +1,9 @@
 """
 Release-1 PMS-readiness tests: identity dual-format, flag gating, and the
 fire-and-forget shadow HTTP client (must never raise / never block).
+
+The legacy service-JWT bearer path has been removed. Transport auth is now
+SigV4 over VPC Lattice — see test_pms_sigv4.py.
 """
 
 from types import SimpleNamespace
@@ -12,20 +15,21 @@ from app.identity import IdentityContext
 from app.schemas.chat import ChatRequest, IdentityEnvelope
 from app.services.pms import (
     ClinicalCategory,
-    ClinicalMemoryEventV1,
+    PmsMemoryEventV1,
+    SourceRef,
     HttpPMSClient,
     NullPMSClient,
-    StaticTokenProvider,
     build_pms_client,
 )
 
-JWT = "jwt-secret-value-123"
+
+# GM treats the assertion as opaque, so tests need no real JWT here.
+ASSERTION = "backend.minted.assertion"
 
 
-def _client(handler, *, max_retries=1, token="jwt-secret-value-123", consumer_id="general-medicine"):
+def _client(handler, *, max_retries=1, consumer_id="general-medicine"):
     return HttpPMSClient(
         base_url="http://internal-pms-alb.local",
-        token_provider=StaticTokenProvider(token),
         max_retries=max_retries,
         consumer_id=consumer_id,
         transport=httpx.MockTransport(handler),
@@ -33,8 +37,9 @@ def _client(handler, *, max_retries=1, token="jwt-secret-value-123", consumer_id
 
 
 def _event():
-    return ClinicalMemoryEventV1(
-        patient_id="u123", session_id="s1", request_id="r1",
+    return PmsMemoryEventV1(
+        event_id="evt-1", conversation_id="s1", turn_ref="r1",
+        source=SourceRef(service="general-medicine"),
         category=ClinicalCategory.SYMPTOM, summary="fever 5 days",
     )
 
@@ -42,8 +47,10 @@ def _event():
 def _settings(**kw):
     base = dict(
         ENABLE_PMS_SHADOW=False, ENABLE_IDENTITY_V1=True, PMS_BASE_URL=None,
-        PMS_INGEST_PATH="/v1/x", PMS_SERVICE_JWT=JWT, PMS_CONSUMER_ID="general-medicine",
+        PMS_INGEST_PATH="/v1/x", PMS_CONSUMER_ID="general-medicine",
         PMS_CONNECT_TIMEOUT_MS=1000, PMS_READ_TIMEOUT_MS=1500, PMS_MAX_RETRIES=1,
+        PMS_MAX_RETRY_AFTER_S=5.0, PMS_SIGV4_ENABLED=False,
+        PMS_SIGV4_SERVICE="vpc-lattice-svcs", PMS_SIGV4_REGION="ap-south-1",
     )
     base.update(kw)
     return SimpleNamespace(**base)
@@ -117,8 +124,18 @@ def test_shadow_on_without_url_falls_back_to_null():
 
 
 def test_shadow_on_with_url_builds_http_client():
-    client = build_pms_client(_settings(ENABLE_PMS_SHADOW=True, PMS_BASE_URL="http://pms.local"))
+    client = build_pms_client(
+        _settings(ENABLE_PMS_SHADOW=True, PMS_BASE_URL="https://pms.local")
+    )
     assert isinstance(client, HttpPMSClient)
+
+
+def test_shadow_on_with_plaintext_url_falls_back_to_null():
+    # TLS is mandatory: clinical data must never travel in the clear.
+    client = build_pms_client(
+        _settings(ENABLE_PMS_SHADOW=True, PMS_BASE_URL="http://pms.local")
+    )
+    assert isinstance(client, NullPMSClient)
 
 
 # ---------------------------------------------------------------------------
@@ -128,12 +145,18 @@ def test_shadow_on_with_url_builds_http_client():
 async def test_http_client_success_does_not_raise():
     calls = []
     client = _client(lambda req: (calls.append(req), httpx.Response(200))[1])
-    await client.ingest_clinical_memory(_event())   # must not raise
+    await client.ingest_clinical_memory(_event(), user_assertion=ASSERTION)   # must not raise
     assert len(calls) == 1
     await client.aclose()
 
 
-async def test_http_client_sends_bearer_auth_and_headers():
+async def test_unsigned_client_sends_no_credential_and_no_consumer_header():
+    """
+    Constructed without an auth signer (the test/opt-out path) the client sends
+    no credential at all: the legacy bearer path is gone, and X-Consumer-Id has
+    been removed because Lattice derives consumer identity from the signed
+    principal. SigV4 header assertions live in test_pms_sigv4.py.
+    """
     seen = {}
     def handler(req):
         seen["auth"] = req.headers.get("authorization")
@@ -141,25 +164,17 @@ async def test_http_client_sends_bearer_auth_and_headers():
         seen["idem"] = req.headers.get("idempotency-key")
         return httpx.Response(202)
     client = _client(handler)
-    await client.ingest_clinical_memory(_event())
-    assert seen["auth"] == f"Bearer {JWT}"          # every request is authenticated
-    assert seen["consumer"] == "general-medicine"
-    assert seen["idem"]                              # transient idempotency/trace token
-    await client.aclose()
-
-
-async def test_http_client_no_token_does_not_send():
-    calls = []
-    client = _client(lambda req: (calls.append(req), httpx.Response(200))[1], token=None)
-    await client.ingest_clinical_memory(_event())
-    assert calls == []                               # never sends anonymously
+    await client.ingest_clinical_memory(_event(), user_assertion=ASSERTION)
+    assert seen["auth"] is None                      # legacy bearer path is gone
+    assert seen["consumer"] is None                  # self-asserted identity removed
+    assert seen["idem"]                              # deterministic idempotency key
     await client.aclose()
 
 
 async def test_http_client_retries_5xx_within_budget():
     calls = []
     client = _client(lambda req: (calls.append(req), httpx.Response(503))[1], max_retries=1)
-    await client.ingest_clinical_memory(_event())
+    await client.ingest_clinical_memory(_event(), user_assertion=ASSERTION)
     assert len(calls) == 2                            # initial + 1 retry
     await client.aclose()
 
@@ -167,7 +182,7 @@ async def test_http_client_retries_5xx_within_budget():
 async def test_http_client_retries_429():
     calls = []
     client = _client(lambda req: (calls.append(req), httpx.Response(429))[1], max_retries=2)
-    await client.ingest_clinical_memory(_event())
+    await client.ingest_clinical_memory(_event(), user_assertion=ASSERTION)
     assert len(calls) == 3
     await client.aclose()
 
@@ -175,7 +190,7 @@ async def test_http_client_retries_429():
 async def test_http_client_does_not_retry_4xx_validation():
     calls = []
     client = _client(lambda req: (calls.append(req), httpx.Response(400))[1], max_retries=3)
-    await client.ingest_clinical_memory(_event())
+    await client.ingest_clinical_memory(_event(), user_assertion=ASSERTION)
     assert len(calls) == 1                            # validation error is not retried
     await client.aclose()
 
@@ -183,7 +198,7 @@ async def test_http_client_does_not_retry_4xx_validation():
 async def test_http_client_does_not_retry_auth_failure():
     calls = []
     client = _client(lambda req: (calls.append(req), httpx.Response(401))[1], max_retries=3)
-    await client.ingest_clinical_memory(_event())
+    await client.ingest_clinical_memory(_event(), user_assertion=ASSERTION)
     assert len(calls) == 1                            # 401 is not retried with same token
     await client.aclose()
 
@@ -194,7 +209,7 @@ async def test_http_client_retries_then_gives_up_on_timeout():
         calls.append(req)
         raise httpx.ReadTimeout("read timed out", request=req)
     client = _client(handler, max_retries=1)
-    await client.ingest_clinical_memory(_event())    # never raises
+    await client.ingest_clinical_memory(_event(), user_assertion=ASSERTION)    # never raises
     assert len(calls) == 2
     await client.aclose()
 
@@ -203,19 +218,17 @@ async def test_http_client_swallows_network_errors():
     def handler(req):
         raise httpx.ConnectError("PMS unreachable", request=req)
     client = _client(handler, max_retries=1)
-    await client.ingest_clinical_memory(_event())    # must not raise
+    await client.ingest_clinical_memory(_event(), user_assertion=ASSERTION)    # must not raise
     await client.aclose()
 
 
-async def test_http_client_never_logs_secrets_or_phi(caplog):
+async def test_http_client_never_logs_phi(caplog):
     import logging
     caplog.set_level(logging.INFO)
     client = _client(lambda req: httpx.Response(200))
-    await client.ingest_clinical_memory(_event())
+    await client.ingest_clinical_memory(_event(), user_assertion=ASSERTION)
     await client.aclose()
     text = caplog.text
-    assert JWT not in text            # token never logged
-    assert "Bearer" not in text       # nor the auth header
     assert "u123" not in text         # patient id never logged
     assert "fever 5 days" not in text  # clinical text never logged
     assert "internal-pms-alb" not in text  # internal URL never logged

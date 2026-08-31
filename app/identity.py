@@ -68,6 +68,10 @@ class IdentityContext:
     # Which upstream consumer/service initiated the call (from the new identity
     # envelope). Optional; captured internally, never sent to the LLM.
     consumer_id: str | None = None
+    # The Backend-minted, PMS-scoped RS256 assertion for this request, exactly as
+    # received. GM never mints, decodes, rewrites, or substitutes it — it is opaque
+    # here and is forwarded verbatim to PMS. Never logged, never sent to the LLM.
+    user_assertion: str | None = None
 
     @classmethod
     def from_request(
@@ -77,6 +81,7 @@ class IdentityContext:
         request_id: str,
         user_id: str | None,
         consumer_id: str | None = None,
+        user_assertion: str | None = None,
     ) -> "IdentityContext":
         """Adapter from the legacy HTTP transport fields to a typed identity."""
         return cls(
@@ -84,6 +89,7 @@ class IdentityContext:
             request_id=request_id,
             patient_id=PatientId.from_user_id(user_id),
             consumer_id=consumer_id or None,
+            user_assertion=user_assertion or None,
         )
 
     @classmethod
@@ -96,6 +102,7 @@ class IdentityContext:
         envelope_session_id: str | None = None,
         envelope_patient_id: str | None = None,
         envelope_consumer_id: str | None = None,
+        user_assertion: str | None = None,
         identity_v1_enabled: bool = True,
     ) -> "IdentityContext":
         """
@@ -120,6 +127,9 @@ class IdentityContext:
             request_id=request_id,
             patient_id=PatientId.from_user_id(user_id),
             consumer_id=consumer_id or None,
+            # Transport-independent: the assertion is a header, so it is unaffected
+            # by which identity format the body used.
+            user_assertion=user_assertion or None,
         )
 
     @property

@@ -6,7 +6,7 @@ import pytest
 
 from app.identity import IdentityContext, PatientId
 from app.services.pms import (
-    ClinicalMemoryEventV1,
+    PmsMemoryEventV1,
     ClinicalMemoryProducer,
     NullPMSClient,
     PMSClient,
@@ -16,6 +16,10 @@ from app.services.pms import (
 # ---------------------------------------------------------------------------
 # PatientId — wraps the authenticated Mongo User._id, never mints one
 # ---------------------------------------------------------------------------
+
+# GM treats the assertion as opaque, so tests need no real JWT here.
+ASSERTION = "backend.minted.assertion"
+
 
 def test_patient_id_from_user_id():
     assert PatientId.from_user_id("507f1f77bcf86cd799439011").value == "507f1f77bcf86cd799439011"
@@ -58,14 +62,20 @@ def test_identity_anonymous_preserved():
 
 class _RecordingPMSClient:
     def __init__(self):
-        self.events: list[ClinicalMemoryEventV1] = []
+        self.events: list[PmsMemoryEventV1] = []
 
-    async def ingest_clinical_memory(self, event: ClinicalMemoryEventV1) -> None:
+    async def ingest_clinical_memory(
+        self, event: PmsMemoryEventV1, *, user_assertion: str | None = None,
+        request_id: str = "-"
+    ) -> None:
         self.events.append(event)
 
 
 class _FailingPMSClient:
-    async def ingest_clinical_memory(self, event: ClinicalMemoryEventV1) -> None:
+    async def ingest_clinical_memory(
+        self, event: PmsMemoryEventV1, *, user_assertion: str | None = None,
+        request_id: str = "-"
+    ) -> None:
         raise RuntimeError("PMS down")
 
 
@@ -101,7 +111,7 @@ async def test_producer_emits_event_from_episode():
         ClinicalCategory,
         ClinicalPriority,
         ClinicalSeverity,
-        EventSource,
+        SourceChannel,
     )
 
     client = _RecordingPMSClient()
@@ -110,11 +120,13 @@ async def test_producer_emits_event_from_episode():
 
     assert len(client.events) == 1
     ev = client.events[0]
-    assert ev.schema_version == "clinical_memory_event.v1"
-    assert ev.patient_id == "u123"          # == Mongo User._id, not minted
-    assert ev.session_id == "S1"
+    assert ev.schema_version == "pms.memory_event/v1"
+    # Identity is NOT on the wire: it travels in the verified assertion.
+    assert "patient_id" not in ev.model_dump()
+    assert ev.conversation_id == "S1"
+    assert ev.source.service == "general-medicine"
     # Contract vocabulary — NOT episodic values / subsystem names.
-    assert ev.source is EventSource.PATIENT_CONVERSATION
+    assert ev.source.channel is SourceChannel.PATIENT_CONVERSATION
     assert ev.category is ClinicalCategory.SYMPTOM
     assert ev.severity is ClinicalSeverity.MODERATE
     assert ev.priority is ClinicalPriority.MEDIUM
@@ -125,7 +137,9 @@ async def test_producer_emits_event_from_episode():
     assert ev.timing.duration == "5 days"
     assert ev.confidence == pytest.approx(0.9)
     # occurred_at is the episode's domain time; NO storage identifier is present.
-    assert ev.occurred_at.startswith("2026-07-25T10:00")
+    # `occurred_at` is a real datetime on the canonical contract, not an ISO string.
+    assert ev.occurred_at is not None
+    assert ev.occurred_at.isoformat().startswith("2026-07-25T10:00")
     assert not hasattr(ev, "source_episode_id")
     assert not hasattr(ev, "episode_id")
 

@@ -34,9 +34,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
 
 
+USER_ASSERTION_HEADER = "x-enervara-user-assertion"
+
+
 def _resolve_identity(
     *,
     ctx: ContainerDep,
+    request: Request,
     request_id: str,
     session_id: str,
     user_id: str | None,
@@ -54,6 +58,9 @@ def _resolve_identity(
         envelope_session_id=(envelope.session_id if envelope else None),
         envelope_patient_id=((envelope.patient_id or envelope.user_id) if envelope else None),
         envelope_consumer_id=(envelope.consumer_id if envelope else None),
+        # Minted by the Backend, forwarded verbatim. Header lookup is
+        # case-insensitive in Starlette.
+        user_assertion=request.headers.get(USER_ASSERTION_HEADER),
         identity_v1_enabled=ctx.settings.ENABLE_IDENTITY_V1,
     )
 
@@ -82,7 +89,7 @@ async def chat(req: ChatRequest, request: Request, ctx: ContainerDep) -> ChatRes
     """
     request_id = _request_id(request)
     identity = _resolve_identity(
-        ctx=ctx, request_id=request_id, session_id=req.session_id,
+        ctx=ctx, request=request, request_id=request_id, session_id=req.session_id,
         user_id=req.user_id, envelope=req.identity,
     )
     result = await ctx.orchestrator.run(query=req.query, identity=identity)
@@ -145,7 +152,7 @@ async def chat_image(
     sid = session_id or uuid.uuid4().hex
     # Multipart image upload carries the legacy Form fields (no JSON envelope).
     identity = _resolve_identity(
-        ctx=ctx, request_id=request_id, session_id=sid, user_id=user_id, envelope=None
+        ctx=ctx, request=request, request_id=request_id, session_id=sid, user_id=user_id, envelope=None
     )
     result = await ctx.orchestrator.run(
         query=media_result.effective_query,
@@ -182,7 +189,7 @@ async def chat_soap(req: SoapRequest, request: Request, ctx: ContainerDep) -> So
 
     request_id = _request_id(request)
     identity = _resolve_identity(
-        ctx=ctx, request_id=request_id, session_id=req.session_id,
+        ctx=ctx, request=request, request_id=request_id, session_id=req.session_id,
         user_id=req.user_id, envelope=req.identity,
     )
     bundle = await load_session(
@@ -219,7 +226,7 @@ async def chat_blocks(req: ChatRequest, request: Request, ctx: ContainerDep) -> 
     """
     request_id = _request_id(request)
     identity = _resolve_identity(
-        ctx=ctx, request_id=request_id, session_id=req.session_id,
+        ctx=ctx, request=request, request_id=request_id, session_id=req.session_id,
         user_id=req.user_id, envelope=req.identity,
     )
     ndjson = _to_ndjson(
@@ -251,7 +258,7 @@ async def chat_stream_blocks(req: ChatRequest, request: Request, ctx: ContainerD
     """
     request_id = _request_id(request)
     identity = _resolve_identity(
-        ctx=ctx, request_id=request_id, session_id=req.session_id,
+        ctx=ctx, request=request, request_id=request_id, session_id=req.session_id,
         user_id=req.user_id, envelope=req.identity,
     )
     sse_blocks = _blocks_to_sse(
@@ -281,7 +288,7 @@ async def chat_stream(req: ChatRequest, request: Request, ctx: ContainerDep) -> 
     """
     request_id = _request_id(request)
     identity = _resolve_identity(
-        ctx=ctx, request_id=request_id, session_id=req.session_id,
+        ctx=ctx, request=request, request_id=request_id, session_id=req.session_id,
         user_id=req.user_id, envelope=req.identity,
     )
     sse_stream = _to_sse(

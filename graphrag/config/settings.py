@@ -168,11 +168,19 @@ class Settings(BaseSettings):
     # PMS connection (only used when ENABLE_PMS_SHADOW=true; unset → NullPMSClient).
     # PMS_BASE_URL is the internal ALB URL, read from config — never hardcoded.
     PMS_BASE_URL: Optional[str] = None
-    PMS_INGEST_PATH: str = "/v1/clinical-memory/events"
-    # Service JWT for `Authorization: Bearer`. Provisioned out-of-band by the
-    # configured auth component (secret manager / env) — never hardcoded. Without
-    # it the client refuses to send (no anonymous PMS requests).
-    PMS_SERVICE_JWT: Optional[str] = None
+    PMS_INGEST_PATH: str = "/v1/memory/events"
+    # ----- PMS transport auth: AWS SigV4 over VPC Lattice (AWS_IAM) -----
+    # GM signs each request with its ECS task-role credentials, resolved via the
+    # standard AWS provider chain. Lattice verifies the signature and derives the
+    # consumer identity from the authenticated principal. There is no shared
+    # secret and no bearer token: the legacy PMS_SERVICE_JWT path is gone.
+    PMS_SIGV4_ENABLED: bool = True
+    PMS_SIGV4_SERVICE: str = "vpc-lattice-svcs"
+    PMS_SIGV4_REGION: str = "ap-south-1"
+    # Upper bound (seconds) applied to a 429 `Retry-After`. This runs on a
+    # background task, so a large server-suggested delay is clamped rather than
+    # holding the slot open.
+    PMS_MAX_RETRY_AFTER_S: float = 5.0
     # Separate connect + read timeouts (short — this is a background call).
     PMS_CONNECT_TIMEOUT_MS: int = 1000
     PMS_READ_TIMEOUT_MS: int = 1500

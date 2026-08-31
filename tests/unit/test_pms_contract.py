@@ -1,7 +1,7 @@
 """
 Boundary guards for the outbound PMS contract.
 
-These tests enforce that ClinicalMemoryEventV1 is a stable, independent contract:
+These tests enforce that PmsMemoryEventV1 is a stable, independent contract:
 no episodic coupling, closed contract vocabulary, immutable, and that a change
 to episodic storage can NEVER silently change the outbound wire format.
 """
@@ -14,17 +14,22 @@ import pytest
 from app.services.pms import events as events_mod
 from app.services.pms import producer as producer_mod
 from app.services.pms import (
+    SourceRef,
     ClinicalCategory,
-    ClinicalMemoryEventV1,
+    PmsMemoryEventV1,
     ClinicalPriority,
     ClinicalSeverity,
-    EventSource,
+    SourceChannel,
 )
 
 
 # ---------------------------------------------------------------------------
 # 1. No implementation coupling — the contract imports nothing from storage
 # ---------------------------------------------------------------------------
+
+# GM treats the assertion as opaque, so tests need no real JWT here.
+ASSERTION = "backend.minted.assertion"
+
 
 def _imported_modules(mod) -> list[str]:
     """All module names referenced by `import`/`from ... import` in a module's source."""
@@ -52,9 +57,9 @@ def test_contract_module_has_no_episodic_or_identity_import():
 
 def test_contract_only_uses_primitive_and_owned_types():
     # Every annotated field is a primitive, a contract enum, or a contract model.
-    owned = {ClinicalCategory, ClinicalSeverity, ClinicalPriority, EventSource,
+    owned = {ClinicalCategory, ClinicalSeverity, ClinicalPriority, SourceChannel,
              events_mod.ClinicalEntities, events_mod.ClinicalTiming}
-    for name, field in ClinicalMemoryEventV1.model_fields.items():
+    for name, field in PmsMemoryEventV1.model_fields.items():
         ann = field.annotation
         # Unwrap Optional/None and Literal — good enough for the guard.
         assert ann is not None
@@ -65,16 +70,18 @@ def test_contract_only_uses_primitive_and_owned_types():
 # ---------------------------------------------------------------------------
 
 def test_event_is_frozen():
-    ev = ClinicalMemoryEventV1(patient_id="u1", session_id="s1", category=ClinicalCategory.SYMPTOM, summary="x")
+    ev = PmsMemoryEventV1(event_id="e1", conversation_id="s1", turn_ref="t1", source=SourceRef(service="general-medicine"), category=ClinicalCategory.SYMPTOM, summary="x")
     with pytest.raises(Exception):
         ev.summary = "mutated"  # frozen → raises
 
 
 def test_event_forbids_unknown_fields():
     with pytest.raises(Exception):
-        ClinicalMemoryEventV1(
-            patient_id="u1", session_id="s1", category=ClinicalCategory.SYMPTOM,
-            summary="x", source_episode_id="leak",  # storage id must be rejected
+        PmsMemoryEventV1(
+            event_id="e1", conversation_id="s1", turn_ref="t1",
+            source=SourceRef(service="general-medicine"),
+            category=ClinicalCategory.SYMPTOM, summary="x",
+            patient_id="leak",  # identity must never cross on the body
         )
 
 
@@ -83,10 +90,10 @@ def test_event_forbids_unknown_fields():
 # ---------------------------------------------------------------------------
 
 def test_schema_version_is_pinned():
-    ev = ClinicalMemoryEventV1(patient_id="u1", session_id="s1", category=ClinicalCategory.OTHER, summary="x")
-    assert ev.schema_version == "clinical_memory_event.v1"
+    ev = PmsMemoryEventV1(event_id="e1", conversation_id="s1", turn_ref="t1", source=SourceRef(service="general-medicine"), category=ClinicalCategory.OTHER, summary="x")
+    assert ev.schema_version == "pms.memory_event/v1"
     with pytest.raises(Exception):
-        ClinicalMemoryEventV1(patient_id="u1", session_id="s1", category=ClinicalCategory.OTHER,
+        PmsMemoryEventV1(event_id="e1", conversation_id="s1", turn_ref="t1", source=SourceRef(service="general-medicine"), category=ClinicalCategory.OTHER,
                               summary="x", schema_version="clinical_memory_event.v2")
 
 
@@ -135,7 +142,7 @@ def test_unmapped_storage_value_falls_back_to_safe_default():
         temporal_data=types.SimpleNamespace(duration=None, onset=None, frequency=None, progression=None),
     )
     ic = IdentityContext.from_request(session_id="s1", request_id="r1", user_id="u1")
-    ev = ClinicalMemoryProducer._to_event(identity=ic, episode=fake_episode, source=EventSource.PATIENT_CONVERSATION)
+    ev = ClinicalMemoryProducer._to_event(identity=ic, episode=fake_episode, channel=SourceChannel.PATIENT_CONVERSATION)
     assert ev.category is ClinicalCategory.OTHER
     assert ev.severity is ClinicalSeverity.UNKNOWN
     assert ev.priority is ClinicalPriority.MEDIUM
