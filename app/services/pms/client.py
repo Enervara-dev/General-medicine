@@ -119,6 +119,7 @@ class HttpPMSClient:
         base_url: str,
         ingest_path: str = "/v1/memory/events",
         consumer_id: str = "general-medicine",
+        identity_contract_version: str = "1.0",
         connect_timeout_ms: int = 1000,
         read_timeout_ms: int = 1500,
         max_retries: int = 1,
@@ -137,6 +138,7 @@ class HttpPMSClient:
         # Lattice, consumer identity is derived from the authenticated
         # principal, and a self-asserted header is a second, spoofable source.
         self._consumer_id = consumer_id
+        self._contract_version = identity_contract_version
         self._max_retries = max(0, int(max_retries))
         self._max_retry_after_s = max(0.0, float(max_retry_after_s))
         self._client = httpx.AsyncClient(
@@ -178,6 +180,7 @@ class HttpPMSClient:
         payload = event.model_dump(mode="json")
         headers = {
             "Idempotency-Key": idem_key,
+            "X-Identity-Contract-Version": self._contract_version,
             # Forwarded verbatim. GM never inspects, decodes, or rewrites it.
             USER_ASSERTION_HEADER: user_assertion,
         }
@@ -339,26 +342,37 @@ def build_pms_client(settings) -> PMSClient:
         logger.warning("PMS_BASE_URL has no host — using NullPMSClient.")
         return NullPMSClient()
 
-    # SigV4 signer. Built here (not inside the client) so the transport seam
-    # stays injectable and tests can construct an unsigned client directly.
+    # Transport selection. In "direct" mode GM talks to the private PMS ALB over
+    # plain HTTPS: there is no Lattice in the current environment, so signing with
+    # `vpc-lattice-svcs` would produce a credential nothing validates. The SigV4
+    # implementation is preserved and simply not attached.
+    transport_mode = str(getattr(settings, "PMS_TRANSPORT", "direct")).strip().lower()
+    if transport_mode not in ("direct", "lattice"):
+        logger.warning(
+            "PMS_TRANSPORT=%r is not recognised — falling back to 'direct'.", transport_mode
+        )
+        transport_mode = "direct"
+
     auth = None
-    if getattr(settings, "PMS_SIGV4_ENABLED", True):
+    if transport_mode == "lattice" and getattr(settings, "PMS_SIGV4_ENABLED", True):
+        # Built here (not inside the client) so the transport seam stays injectable
+        # and tests can construct an unsigned client directly.
         from app.services.pms.signing import SigV4RequestSigner
 
         auth = SigV4RequestSigner(
             service=getattr(settings, "PMS_SIGV4_SERVICE", "vpc-lattice-svcs"),
             region=getattr(settings, "PMS_SIGV4_REGION", "ap-south-1"),
         )
-    else:
+    elif transport_mode == "lattice":
         logger.warning(
-            "PMS_SIGV4_ENABLED=false — requests are UNSIGNED. Local testing only."
+            "PMS_TRANSPORT=lattice with PMS_SIGV4_ENABLED=false — requests are "
+            "UNSIGNED. Local testing only."
         )
 
     logger.info(
-        "PMS shadow mode ON — HttpPMSClient active (sigv4=%s service=%s region=%s).",
+        "PMS shadow mode ON — HttpPMSClient active (transport=%s sigv4=%s).",
+        transport_mode,
         bool(auth),
-        getattr(settings, "PMS_SIGV4_SERVICE", "vpc-lattice-svcs"),
-        getattr(settings, "PMS_SIGV4_REGION", "ap-south-1"),
     )  # no URL in logs
     return HttpPMSClient(
         base_url=base_url,
@@ -369,6 +383,7 @@ def build_pms_client(settings) -> PMSClient:
         read_timeout_ms=settings.PMS_READ_TIMEOUT_MS,
         max_retries=settings.PMS_MAX_RETRIES,
         max_retry_after_s=getattr(settings, "PMS_MAX_RETRY_AFTER_S", 5.0),
+        identity_contract_version=getattr(settings, "PMS_IDENTITY_CONTRACT_VERSION", "1.0"),
     )
 
 

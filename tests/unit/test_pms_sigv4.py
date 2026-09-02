@@ -96,6 +96,8 @@ def _settings(**kw):
         PMS_READ_TIMEOUT_MS=1500,
         PMS_MAX_RETRIES=1,
         PMS_MAX_RETRY_AFTER_S=5.0,
+        PMS_TRANSPORT="direct",
+        PMS_IDENTITY_CONTRACT_VERSION="1.0",
         PMS_SIGV4_ENABLED=False,  # don't build a real signer in builder tests
         PMS_SIGV4_SERVICE="vpc-lattice-svcs",
         PMS_SIGV4_REGION="ap-south-1",
@@ -393,13 +395,14 @@ def test_flag_off_still_wins_over_everything():
 
 
 def test_sigv4_enabled_builds_a_signer():
-    c = build_pms_client(_settings(PMS_SIGV4_ENABLED=True))
+    """SigV4 is now conditional on the transport, not on the flag alone."""
+    c = build_pms_client(_settings(PMS_TRANSPORT="lattice", PMS_SIGV4_ENABLED=True))
     assert isinstance(c, HttpPMSClient)
     assert isinstance(c._client.auth, SigV4RequestSigner)
 
 
 def test_sigv4_disabled_builds_unsigned_client():
-    c = build_pms_client(_settings(PMS_SIGV4_ENABLED=False))
+    c = build_pms_client(_settings(PMS_TRANSPORT="lattice", PMS_SIGV4_ENABLED=False))
     assert isinstance(c, HttpPMSClient)
     assert c._client.auth is None
 
@@ -659,3 +662,95 @@ async def test_only_expected_headers_are_sent():
         if "token" in name.lower() or "secret" in name.lower() or "consumer" in name.lower()
     }
     assert unexpected in ({"x-amz-security-token"}, set())
+
+
+# ---------------------------------------------------------------------------
+# Transport selection: direct (current) vs lattice (future)
+# ---------------------------------------------------------------------------
+
+
+def test_direct_transport_attaches_no_signer():
+    """There is no Lattice in ap-south-1 today, so a SigV4 credential would be
+    validated by nothing. The signing implementation stays; it is not attached."""
+    c = build_pms_client(_settings(PMS_TRANSPORT="direct", PMS_SIGV4_ENABLED=True))
+    assert isinstance(c, HttpPMSClient)
+    assert c._client.auth is None
+
+
+def test_lattice_transport_still_attaches_the_signer():
+    """The SigV4/Lattice implementation is preserved for the future topology."""
+    c = build_pms_client(_settings(PMS_TRANSPORT="lattice", PMS_SIGV4_ENABLED=True))
+    assert isinstance(c._client.auth, SigV4RequestSigner)
+
+
+def test_unknown_transport_falls_back_to_direct():
+    """A typo must not silently sign against a service that does not exist."""
+    c = build_pms_client(_settings(PMS_TRANSPORT="lattuce", PMS_SIGV4_ENABLED=True))
+    assert c._client.auth is None
+
+
+def test_transport_default_is_direct():
+    settings = _settings()
+    del settings.PMS_TRANSPORT
+    assert build_pms_client(settings)._client.auth is None
+
+
+async def test_direct_mode_sends_a_plain_https_request():
+    """No AWS credential headers at all on the direct private-ALB path."""
+    seen = {}
+    await _client(
+        lambda r: (seen.update({"headers": dict(r.headers), "url": str(r.url)}), httpx.Response(202))[1]
+    ).ingest_clinical_memory(_event(), user_assertion=ASSERTION)
+
+    assert seen["url"].startswith("https://")
+    assert "authorization" not in seen["headers"]
+    assert not [h for h in seen["headers"] if h.startswith("x-amz-")]
+
+
+async def test_direct_mode_still_carries_the_required_headers():
+    seen = {}
+    await _client(
+        lambda r: (seen.update(r.headers), httpx.Response(202))[1]
+    ).ingest_clinical_memory(_event(), user_assertion=ASSERTION)
+
+    assert seen[USER_ASSERTION_HEADER.lower()] == ASSERTION
+    assert seen["x-identity-contract-version"] == "1.0"
+    assert seen["idempotency-key"]
+
+
+async def test_direct_mode_assertion_is_still_mandatory():
+    """Dropping SigV4 must not become a way to drop patient authentication."""
+    calls = []
+    await _client(
+        lambda r: (calls.append(r), httpx.Response(202))[1]
+    ).ingest_clinical_memory(_event(), user_assertion=None)
+
+    assert calls == []
+
+
+async def test_direct_mode_sends_no_bearer_or_session_credential():
+    seen = {}
+    await _client(
+        lambda r: (seen.update(r.headers), httpx.Response(202))[1]
+    ).ingest_clinical_memory(_event(), user_assertion=ASSERTION)
+
+    assert "authorization" not in seen
+    assert "cookie" not in seen
+    assert "x-consumer-id" not in seen
+
+
+async def test_direct_mode_idempotency_is_unchanged():
+    seen = []
+    client = _client(lambda r: (seen.append(r.headers["idempotency-key"]), httpx.Response(202))[1])
+    await client.ingest_clinical_memory(_event(), user_assertion=ASSERTION)
+    await client.ingest_clinical_memory(_event(), user_assertion=ASSERTION)
+
+    assert seen[0] == seen[1] == _event().idempotency_key()
+
+
+def test_direct_mode_still_refuses_plaintext():
+    """HTTPS remains mandatory on the private path."""
+    c = build_pms_client(
+        _settings(PMS_TRANSPORT="direct", PMS_BASE_URL="http://pms-alb.internal")
+    )
+    assert isinstance(c, NullPMSClient)

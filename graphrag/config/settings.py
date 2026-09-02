@@ -169,6 +169,18 @@ class Settings(BaseSettings):
     # PMS_BASE_URL is the internal ALB URL, read from config — never hardcoded.
     PMS_BASE_URL: Optional[str] = None
     PMS_INGEST_PATH: str = "/v1/memory/events"
+    # ----- PMS transport ------------------------------------------------
+    # "direct"  — CURRENT. GM reaches the PMS internal ALB over private VPC
+    #             networking. Plain HTTPS, no SigV4, no Lattice dependency.
+    #             This is the only path that exists in ap-south-1 today.
+    # "lattice" — FUTURE. SigV4-signed via VPC Lattice (AWS_IAM); the
+    #             implementation below is preserved unchanged for it.
+    # The user assertion, canonical event, idempotency, retry, and TLS rules are
+    # identical in both modes — only the transport credential differs.
+    PMS_TRANSPORT: str = "direct"
+    # Sent on every PMS request in both modes.
+    PMS_IDENTITY_CONTRACT_VERSION: str = "1.0"
+
     # ----- PMS transport auth: AWS SigV4 over VPC Lattice (AWS_IAM) -----
     # GM signs each request with its ECS task-role credentials, resolved via the
     # standard AWS provider chain. Lattice verifies the signature and derives the
