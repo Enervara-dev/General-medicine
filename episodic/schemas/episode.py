@@ -7,12 +7,18 @@ patient utterance. It is the only thing the layer stores in Pinecone.
 
 from __future__ import annotations
 
+import copy
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from episodic.schemas.entity_normalization import (
+    has_structured_entities,
+    normalize_entity_list,
+)
 
 
 class EpisodeCategory(str, Enum):
@@ -42,11 +48,27 @@ class Severity(str, Enum):
 
 
 class EpisodeEntities(BaseModel):
+    """
+    Flat entity vocabulary. Every list is ``list[str]``.
+
+    The extraction LLM emits a bare entity as a string but upgrades it to an
+    object ({"name": "fever", "value": "101F"}) the moment it carries a
+    qualifier. Both shapes are accepted and folded to one display string by the
+    validator below, so a qualified entity no longer fails validation and takes
+    the whole candidate down with it. See ``entity_normalization``.
+    """
+
     symptoms: list[str] = Field(default_factory=list)
     conditions: list[str] = Field(default_factory=list)
     medications: list[str] = Field(default_factory=list)
     labs: list[str] = Field(default_factory=list)
     body_parts: list[str] = Field(default_factory=list)
+
+    # "*" so any entity list added later is normalised without a code change.
+    @field_validator("*", mode="before")
+    @classmethod
+    def _normalize_entities(cls, value: Any) -> Any:
+        return normalize_entity_list(value)
 
 
 class TemporalData(BaseModel):
@@ -78,6 +100,28 @@ class EpisodeCandidate(BaseModel):
     # Extractor sets this to False for conversational noise / non-medical content
     # so the storage layer can drop the candidate cheaply.
     store_memory: bool = True
+
+    @model_validator(mode="before")
+    @classmethod
+    def _preserve_structured_entities(cls, data: Any) -> Any:
+        """
+        Keep the extractor's structured entities verbatim on ``metadata`` before
+        they are flattened to display strings, so no attribute is silently lost.
+
+        ``metadata`` is internal: the PMS producer maps named fields only, so
+        this never crosses the PMS boundary and changes no wire contract.
+        """
+        if not isinstance(data, dict):
+            return data
+        entities = data.get("entities")
+        if not has_structured_entities(entities):
+            return data
+        metadata = data.get("metadata")
+        metadata = dict(metadata) if isinstance(metadata, dict) else {}
+        metadata.setdefault("entities_raw", copy.deepcopy(entities))
+        data = dict(data)
+        data["metadata"] = metadata
+        return data
 
     def is_chronic(self) -> bool:
         """Chronic episodes don't decay. Heuristic: category=condition + no end date."""
