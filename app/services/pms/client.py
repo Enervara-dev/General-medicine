@@ -125,7 +125,7 @@ class HttpPMSClient:
         max_retries: int = 1,
         max_retry_after_s: float = 5.0,
         auth: "httpx.Auth | None" = None,       # the SigV4 signer
-        transport: object | None = None,  # injectable for tests (httpx.MockTransport)
+        transport: httpx.AsyncBaseTransport | None = None,  # tests: httpx.MockTransport
     ) -> None:
         import httpx
 
@@ -300,14 +300,20 @@ def build_pms_client(settings) -> PMSClient:
         ENABLE_PMS_SHADOW=false (production default) → NullPMSClient (no HTTP).
         ENABLE_PMS_SHADOW=true  + PMS_BASE_URL set   → HttpPMSClient (SigV4).
         ENABLE_PMS_SHADOW=true  + PMS_BASE_URL unset → NullPMSClient (+ warn).
-        ENABLE_PMS_SHADOW=true  + non-HTTPS base URL → NullPMSClient (+ warn).
-        ENABLE_PMS_SHADOW=true  + malformed base URL → NullPMSClient (+ warn).
+        ENABLE_PMS_SHADOW=true  + http:// + PMS_TRANSPORT=direct → HttpPMSClient
+                                                                  (+ loud warn).
+        ENABLE_PMS_SHADOW=true  + http:// + any other transport → NullPMSClient.
+        ENABLE_PMS_SHADOW=true  + malformed/other scheme       → NullPMSClient.
 
     The base URL is read from config (never hardcoded) and never logged.
 
-    TLS is MANDATORY. Clinical content and an AWS signature must never travel
-    in plaintext, so a non-HTTPS URL degrades to NullPMSClient rather than
-    downgrading the transport.
+    TLS POSTURE. HTTPS is the default and is required for every transport that
+    leaves the VPC. Plaintext HTTP is tolerated in EXACTLY one configuration:
+    ``PMS_TRANSPORT=direct``, where PMS_BASE_URL is the private in-VPC PMS ALB
+    that currently terminates no TLS. That exception is scoped to the single
+    configured URL in that single mode — it is not a global override, and it
+    never widens to the Lattice transport or to any other endpoint. It is
+    logged at WARNING on every boot so the posture is never silent.
 
     AUTHENTICATION: SigV4 over VPC Lattice using the ECS task role. Signing is
     on by default and can be disabled ONLY via PMS_SIGV4_ENABLED=false, which
@@ -323,35 +329,65 @@ def build_pms_client(settings) -> PMSClient:
         )
         return NullPMSClient()
 
-    # TLS gate. Never log the URL itself — only the scheme.
-    from urllib.parse import urlparse
-
-    try:
-        parsed = urlparse(str(base_url))
-    except Exception:  # noqa: BLE001
-        logger.warning("PMS_BASE_URL is unparseable — using NullPMSClient.")
-        return NullPMSClient()
-    if parsed.scheme != "https":
-        logger.warning(
-            "PMS_BASE_URL scheme is %r, not https — refusing plaintext clinical "
-            "transport; using NullPMSClient.",
-            parsed.scheme or "(none)",
-        )
-        return NullPMSClient()
-    if not parsed.hostname:
-        logger.warning("PMS_BASE_URL has no host — using NullPMSClient.")
-        return NullPMSClient()
-
-    # Transport selection. In "direct" mode GM talks to the private PMS ALB over
-    # plain HTTPS: there is no Lattice in the current environment, so signing with
-    # `vpc-lattice-svcs` would produce a credential nothing validates. The SigV4
-    # implementation is preserved and simply not attached.
+    # Transport selection FIRST: the plaintext allowance in the TLS gate below is
+    # scoped to "direct" mode, so the mode has to be known before the scheme is
+    # judged. In "direct" mode GM talks straight to the private PMS ALB — there is
+    # no Lattice in the current environment, so signing with `vpc-lattice-svcs`
+    # would produce a credential nothing validates. The SigV4 implementation is
+    # preserved and simply not attached.
     transport_mode = str(getattr(settings, "PMS_TRANSPORT", "direct")).strip().lower()
     if transport_mode not in ("direct", "lattice"):
         logger.warning(
             "PMS_TRANSPORT=%r is not recognised — falling back to 'direct'.", transport_mode
         )
         transport_mode = "direct"
+
+    # ---- TLS gate -----------------------------------------------------------
+    # HTTPS is the default and the only transport for anything leaving the VPC.
+    # Plaintext is tolerated in EXACTLY one case: PMS_TRANSPORT=direct, where the
+    # configured PMS_BASE_URL is the private in-VPC PMS ALB that currently exposes
+    # no TLS listener. The exception is scoped to that one configured URL and that
+    # one mode — it is not a global switch, and it does not widen to any other
+    # transport. Never log the URL itself, only the scheme.
+    from urllib.parse import urlparse
+
+    try:
+        parsed = urlparse(str(base_url))
+    except Exception:  # noqa: BLE001
+        logger.error("PMS_BASE_URL is unparseable — using NullPMSClient (PMS DISABLED).")
+        return NullPMSClient()
+
+    scheme = (parsed.scheme or "").lower()
+    if not parsed.hostname:
+        logger.error("PMS_BASE_URL has no host — using NullPMSClient (PMS DISABLED).")
+        return NullPMSClient()
+    if scheme not in ("http", "https"):
+        # Anything exotic (file://, ftp://, an unschemed host) is refused outright,
+        # in every mode — the direct-mode allowance covers plain HTTP only.
+        logger.error(
+            "PMS_BASE_URL scheme is %r — only http/https are supported; "
+            "using NullPMSClient (PMS DISABLED).",
+            scheme or "(none)",
+        )
+        return NullPMSClient()
+    if scheme == "http":
+        if transport_mode != "direct":
+            logger.error(
+                "PMS_BASE_URL is plaintext http:// but PMS_TRANSPORT=%r. Plaintext is "
+                "permitted ONLY for the private in-VPC direct transport — refusing; "
+                "using NullPMSClient (PMS DISABLED).",
+                transport_mode,
+            )
+            return NullPMSClient()
+        logger.warning(
+            "PMS transport is PLAINTEXT HTTP — intentionally allowed because "
+            "PMS_TRANSPORT=direct. The configured PMS_BASE_URL is the private in-VPC "
+            "PMS ALB, which exposes no TLS listener. Clinical content and the user "
+            "assertion cross this hop UNENCRYPTED and are protected only by VPC and "
+            "security-group isolation. Move PMS_BASE_URL to https:// as soon as the "
+            "ALB has a TLS listener. This allowance applies to this one configured "
+            "URL in direct mode only."
+        )
 
     auth = None
     if transport_mode == "lattice" and getattr(settings, "PMS_SIGV4_ENABLED", True):
@@ -370,9 +406,12 @@ def build_pms_client(settings) -> PMSClient:
         )
 
     logger.info(
-        "PMS shadow mode ON — HttpPMSClient active (transport=%s sigv4=%s).",
+        "PMS shadow mode ON — HttpPMSClient active (transport=%s scheme=%s sigv4=%s "
+        "tls=%s).",
         transport_mode,
+        scheme,
         bool(auth),
+        "yes" if scheme == "https" else "NO-PLAINTEXT",
     )  # no URL in logs
     return HttpPMSClient(
         base_url=base_url,

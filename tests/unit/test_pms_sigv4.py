@@ -378,9 +378,15 @@ def test_https_base_url_builds_http_client():
     assert isinstance(build_pms_client(_settings()), HttpPMSClient)
 
 
-def test_plaintext_base_url_is_refused():
-    """Clinical data must never travel in the clear."""
-    c = build_pms_client(_settings(PMS_BASE_URL="http://pms.lattice.local"))
+def test_plaintext_base_url_is_refused_outside_direct_transport():
+    """
+    Clinical data must never travel in the clear over Lattice or anything else
+    leaving the VPC. The ONLY plaintext exception is PMS_TRANSPORT=direct against
+    the private in-VPC ALB — covered in test_pms_direct_transport.py.
+    """
+    c = build_pms_client(
+        _settings(PMS_TRANSPORT="lattice", PMS_BASE_URL="http://pms.lattice.local")
+    )
     assert isinstance(c, NullPMSClient)
 
 
@@ -748,9 +754,16 @@ async def test_direct_mode_idempotency_is_unchanged():
     assert seen[0] == seen[1] == _event().idempotency_key()
 
 
-def test_direct_mode_still_refuses_plaintext():
-    """HTTPS remains mandatory on the private path."""
+def test_direct_mode_allows_plaintext_to_the_private_alb():
+    """
+    POLICY CHANGE (deliberate): the PMS ALB is internal and terminates no TLS, so
+    direct mode accepts http:// for that one configured URL. HTTPS remains the
+    default and every other transport still refuses plaintext — see
+    test_plaintext_base_url_is_refused_outside_direct_transport and
+    test_pms_direct_transport.py for the full policy.
+    """
     c = build_pms_client(
         _settings(PMS_TRANSPORT="direct", PMS_BASE_URL="http://pms-alb.internal")
     )
-    assert isinstance(c, NullPMSClient)
+    assert isinstance(c, HttpPMSClient)
+    assert c._client.auth is None  # nothing validates a Lattice signature here

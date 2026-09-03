@@ -131,9 +131,14 @@ def test_shadow_on_with_url_builds_http_client():
 
 
 def test_shadow_on_with_plaintext_url_falls_back_to_null():
-    # TLS is mandatory: clinical data must never travel in the clear.
+    # TLS is mandatory for every transport that leaves the VPC. Plaintext is
+    # allowed ONLY for PMS_TRANSPORT=direct against the private in-VPC ALB.
     client = build_pms_client(
-        _settings(ENABLE_PMS_SHADOW=True, PMS_BASE_URL="http://pms.local")
+        _settings(
+            ENABLE_PMS_SHADOW=True,
+            PMS_TRANSPORT="lattice",
+            PMS_BASE_URL="http://pms.local",
+        )
     )
     assert isinstance(client, NullPMSClient)
 
