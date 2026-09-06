@@ -8,6 +8,30 @@ from uuid import uuid4
 from pydantic import BaseModel, Field
 
 
+class DemographicsEnvelope(BaseModel):
+    """
+    AI-safe demographics supplied BY the Backend on the request.
+
+    This replaces reading the Backend's database directly. GM used to open its
+    own MongoDB connection to Enervara's `users` collection and look the patient
+    up by ObjectId — a second service reaching into another service's database,
+    which broke outright when the Backend moved to PostgreSQL and would have
+    broken again on any schema change there.
+
+    Only the seven fields that may reach the LLM travel here. Note that the
+    Backend sends a derived ``age``, never a date of birth: GM has no use for
+    the exact date, so it is not sent at all.
+    """
+
+    age: int | None = None
+    sex: str | None = None
+    height_cm: int | None = None
+    weight_kg: int | None = None
+    bmi: float | None = None
+    state: str | None = None
+    city: str | None = None
+
+
 class IdentityEnvelope(BaseModel):
     """
     New identity contract the Backend MAY send alongside (or instead of) the
@@ -15,12 +39,17 @@ class IdentityEnvelope(BaseModel):
     absent → the legacy fields are used, so existing callers are unaffected.
     """
 
-    # ``patient_id`` is the authenticated Mongo User._id; ``user_id`` is accepted
-    # as an alias so either naming works during the Backend rollout.
+    # ``patient_id`` is the Backend's canonical patient id: a UUID (``patients.id``
+    # in its PostgreSQL schema). It was a 24-char Mongo ``User._id`` before that
+    # migration. GM never parses or validates the shape — the id is opaque here
+    # and is only ever carried, so the Backend can change its scheme without a
+    # coordinated release. ``user_id`` is accepted as an alias.
     patient_id: str | None = None
     user_id: str | None = None
     session_id: str | None = None
     consumer_id: str | None = None   # which upstream consumer/service initiated
+    # Supplied by the Backend so GM never needs its own view of patient data.
+    demographics: DemographicsEnvelope | None = None
 
 
 class ChatRequest(BaseModel):

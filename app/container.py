@@ -23,7 +23,6 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from app.services.demographics import DemographicsService
     from app.services.media import MediaPipeline
     from app.services.orchestration.pipeline import AsyncOrchestrator
     from app.services.pms import PMSClient
@@ -48,7 +47,6 @@ class AppContainer:
     analyzer: "MedicalQueryAnalyzer"
     episodic: "EpisodicContainer | None"
     media_pipeline: "MediaPipeline"
-    demographics: "DemographicsService"
     # Sink for longitudinal clinical-memory events. Default NullPMSClient (no-op)
     # so nothing is sent yet; swap for the real HTTP client when PMS is ready.
     pms: "PMSClient"
@@ -64,10 +62,6 @@ class AppContainer:
             self.kg_retriever.close()
         except Exception as exc:
             logger.warning("kg_retriever close failed: %s", exc)
-        try:
-            self.demographics.close()
-        except Exception as exc:
-            logger.warning("demographics close failed: %s", exc)
         # Close the PMS HTTP client's pool if the active client has one.
         pms_close = getattr(self.pms, "aclose", None)
         if callable(pms_close):
@@ -131,7 +125,6 @@ async def build_container() -> AppContainer:
         except Exception as exc:
             logger.warning("Episodic container disabled at boot: %s", exc)
 
-    from app.services.demographics import build_demographics_service
     from app.services.pms import build_pms_client
 
     container = AppContainer(
@@ -143,7 +136,6 @@ async def build_container() -> AppContainer:
         analyzer=analyzer,
         episodic=episodic,
         media_pipeline=MediaPipeline.from_settings(settings),
-        demographics=build_demographics_service(settings),
         # NullPMSClient by default (no HTTP, no behaviour change). Becomes the
         # fire-and-forget HttpPMSClient only when ENABLE_PMS_SHADOW=true.
         pms=build_pms_client(settings),

@@ -58,6 +58,13 @@ def _resolve_identity(
         envelope_session_id=(envelope.session_id if envelope else None),
         envelope_patient_id=((envelope.patient_id or envelope.user_id) if envelope else None),
         envelope_consumer_id=(envelope.consumer_id if envelope else None),
+        # Demographics now arrive WITH the request instead of being read out of
+        # the Backend's own database.
+        envelope_demographics=(
+            envelope.demographics.model_dump(exclude_none=True)
+            if envelope is not None and envelope.demographics is not None
+            else None
+        ),
         # Minted by the Backend, forwarded verbatim. Header lookup is
         # case-insensitive in Starlette.
         user_assertion=request.headers.get(USER_ASSERTION_HEADER),

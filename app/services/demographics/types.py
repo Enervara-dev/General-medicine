@@ -1,11 +1,12 @@
 """
 DemographicContextV1 — the typed, AI-safe view of a patient's demographics.
 
-Only these seven fields ever reach the LLM. The raw MongoDB user document (which
-also carries email, phone, password/token hashes, firebaseUID, _id, etc.) is
-NEVER exposed: the repository projects to AI-safe fields at the query, and this
-module derives the final shape. ``age`` is derived from ``dateOfBirth`` and
-``bmi`` from ``heightCm``/``weightKg`` — both only when the inputs are present.
+Only these seven fields ever reach the LLM. The Backend projects to this shape
+before sending it, so no other patient field is even transmitted — GM does not
+read the Backend's database and never sees email, phone, credentials or ids.
+
+``age`` and ``bmi`` may arrive already derived, or be derived here from
+``dateOfBirth`` and ``heightCm``/``weightKg`` when those are supplied.
 """
 
 from __future__ import annotations
@@ -15,10 +16,9 @@ from typing import Any, Optional
 
 from pydantic import BaseModel
 
-# The ONLY fields read from the Mongo `users` document. Anything not listed here
-# never leaves the database (see DemographicsRepository's projection). Keep this
-# tuple as the single source of truth for the read projection.
-AI_SAFE_MONGO_FIELDS: tuple[str, ...] = (
+# The ONLY patient fields that may reach the LLM. Retained as the documented
+# allow-list for the shape the Backend sends.
+AI_SAFE_DEMOGRAPHIC_FIELDS: tuple[str, ...] = (
     "dateOfBirth",
     "sex",
     "heightCm",
@@ -132,7 +132,7 @@ def build_demographic_context_v1(
 
 
 __all__ = [
-    "AI_SAFE_MONGO_FIELDS",
+    "AI_SAFE_DEMOGRAPHIC_FIELDS",
     "DemographicContextV1",
     "build_demographic_context_v1",
     "derive_age",

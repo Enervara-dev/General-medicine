@@ -140,21 +140,19 @@ class Settings(BaseSettings):
     REDIS_URL: str = "redis://localhost:6379/0"
     SESSION_TTL_SEC: int = 7200
 
-    # ----- MongoDB (read-only authoritative patient demographics) -----
-    # The canonical demographic record lives in `enervara.users`. It is loaded
-    # per-turn (keyed on the request's user_id), projected to AI-safe fields
-    # only, and injected into the answer prompt when clinically relevant. It is
-    # NEVER written to, never embedded into Pinecone, and never mixed into Redis
-    # or episodic memory. All of it fails open: any Mongo error or missing field
-    # degrades to "no demographic context" without breaking /chat.
-    MONGO_URI: Optional[str] = None
-    MONGO_DB: str = "enervara"
-    MONGO_USERS_COLLECTION: str = "users"
-    # Master switch. When false (or MONGO_URI unset), demographics are skipped
-    # entirely and the pipeline behaves exactly as before.
-    DEMOGRAPHICS_ENABLED: bool = True
-    # Short timeouts so a slow/unreachable Mongo never stalls a chat turn.
-    MONGO_TIMEOUT_MS: int = 3000
+    # ----- Patient demographics -----
+    # Demographics are supplied BY the Backend on each request, inside the
+    # identity envelope, and are used only to build the AI-safe context block.
+    #
+    # There is no configuration here any more. This service previously held its
+    # own MongoDB connection to the Backend's `enervara.users` collection and
+    # looked the patient up by ObjectId — one service reading another's
+    # database, which broke when the Backend migrated to PostgreSQL. The
+    # MONGO_URI / MONGO_DB / MONGO_USERS_COLLECTION / MONGO_TIMEOUT_MS /
+    # DEMOGRAPHICS_ENABLED settings that configured it are removed: nothing
+    # reads them, and leaving them would suggest a connection that no longer
+    # exists. Behaviour is unchanged and still fails open — a request without
+    # demographics simply gets no demographic block.
 
     # ----- PMS (Patient Memory Service) — shadow producer, OFF by default -----
     # Master rollout flag. FALSE (production default) → NullPMSClient: no HTTP,

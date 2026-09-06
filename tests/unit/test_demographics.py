@@ -6,8 +6,6 @@ import pytest
 
 from app.services.demographics import (
     DemographicContextV1,
-    DemographicsRepository,
-    DemographicsService,
     build_demographic_context_v1,
     derive_age,
     derive_bmi,
@@ -21,36 +19,6 @@ TODAY = date(2026, 7, 23)
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------
-
-class _FakeCollection:
-    """Minimal stand-in for a pymongo Collection."""
-
-    def __init__(self, docs, *, raise_exc=None):
-        self._docs = docs
-        self._raise = raise_exc
-        self.last_projection = None
-
-    def find_one(self, query, projection=None):
-        if self._raise:
-            raise self._raise
-        self.last_projection = projection
-        for d in self._docs:
-            for k, v in query.items():
-                if d.get(k) != v:
-                    break
-            else:
-                # Apply projection (only the projected keys, minus _id:0).
-                if projection:
-                    keep = {k for k, on in projection.items() if on and k != "_id"}
-                    return {k: val for k, val in d.items() if k in keep}
-                return dict(d)
-        return None
-
-
-def _service(docs=None, *, raise_exc=None, enabled=True):
-    repo = DemographicsRepository(_FakeCollection(docs or [], raise_exc=raise_exc))
-    return DemographicsService(repo, enabled=enabled)
-
 
 VALID_DOC = {
     "firebaseUID": "uid-123",
@@ -115,45 +83,33 @@ def test_partial_demographics():
 
 
 # ---------------------------------------------------------------------------
-# Service (fail-open)
+# Request-supplied demographics (replaces the Mongo read)
 # ---------------------------------------------------------------------------
 
-async def test_service_valid_user():
-    svc = _service([VALID_DOC])
-    ctx = await svc.load("uid-123")
-    assert ctx is not None and ctx.age == 36 and ctx.city == "Hyderabad"
+def test_context_builds_from_the_backend_payload():
+    """The Backend sends the AI-safe shape directly; nothing is derived here."""
+    ctx = DemographicContextV1(
+        age=36, sex="male", height_cm=175, weight_kg=80, bmi=26.1,
+        state="Telangana", city="Hyderabad",
+    )
+    assert not ctx.is_empty()
+    assert ctx.age == 36 and ctx.city == "Hyderabad"
 
 
-async def test_service_missing_user_returns_none():
-    svc = _service([VALID_DOC])
-    assert await svc.load("does-not-exist") is None
+def test_context_is_empty_when_no_field_is_populated():
+    assert DemographicContextV1().is_empty()
 
 
-async def test_service_no_user_id_returns_none():
-    svc = _service([VALID_DOC])
-    assert await svc.load(None) is None
-    assert await svc.load("") is None
-
-
-async def test_service_mongo_unavailable_is_graceful():
-    svc = _service([], raise_exc=RuntimeError("mongo down"))
-    # Must not raise — degrades to None.
-    assert await svc.load("uid-123") is None
-
-
-async def test_service_disabled_returns_none():
-    svc = _service([VALID_DOC], enabled=False)
-    assert await svc.load("uid-123") is None
-
-
-async def test_repository_projection_excludes_sensitive_fields():
-    col = _FakeCollection([VALID_DOC])
-    repo = DemographicsRepository(col)
-    doc = await repo.fetch("uid-123")
-    # Only AI-safe fields returned — no email/phone/password/_id.
-    assert set(doc).issubset({"dateOfBirth", "sex", "heightCm", "weightKg", "state", "city"})
-    assert "email" not in doc and "phone" not in doc and "password" not in doc
-    assert col.last_projection.get("_id") == 0
+def test_no_patient_identifier_or_contact_field_is_representable():
+    """
+    The AI-safe shape has no field for an email, phone, credential or id, so
+    those cannot reach the LLM even if the Backend were to send them — the
+    guarantee the Mongo projection used to provide, now structural.
+    """
+    fields = set(DemographicContextV1.model_fields)
+    assert fields == {"age", "sex", "height_cm", "weight_kg", "bmi", "state", "city"}
+    for forbidden in ("email", "phone", "password", "firebaseUID", "_id", "user_id", "patient_id"):
+        assert forbidden not in fields
 
 
 # ---------------------------------------------------------------------------
@@ -318,38 +274,36 @@ def test_compose_omits_demographic_block_when_absent():
 
 
 class _Container:
-    def __init__(self, demographics):
-        self.demographics = demographics
+    """The orchestrator no longer needs a demographics service at all."""
 
 
-async def test_orchestrator_demographics_disabled_service():
-    # /chat + /chat/stream must work when demographics are off — the loader
-    # yields None and the pipeline proceeds unchanged.
+async def test_orchestrator_demographics_none_when_backend_sends_none():
+    # /chat + /chat/stream must work when the Backend sends no demographics —
+    # the loader yields None and the pipeline proceeds unchanged.
+    from app.identity import IdentityContext
     from app.services.orchestration.pipeline import (
         AsyncOrchestrator,
         _authoritative_demographic_fields,
     )
 
-    orch = AsyncOrchestrator(_Container(_service([VALID_DOC], enabled=False)))
-    demo = await orch._load_demographics("uid-123")
+    orch = AsyncOrchestrator(_Container())
+    identity = IdentityContext.from_request(
+        session_id="s1", request_id="r1", user_id="01a0720a-7a47-7c8a-a9f4-e9274cb8fbef"
+    )
+    demo = await orch._load_demographics(identity)
     assert demo is None
     assert _authoritative_demographic_fields(demo) == frozenset()
     assert render_demographic_block(demo, {"intent": "symptom_query"}, "hi") == ""
 
 
-async def test_orchestrator_demographics_no_user_id():
+async def test_orchestrator_demographics_anonymous_request():
+    """No patient id at all — anonymous turns still work."""
+    from app.identity import IdentityContext
     from app.services.orchestration.pipeline import AsyncOrchestrator
 
-    orch = AsyncOrchestrator(_Container(_service([VALID_DOC])))
-    assert await orch._load_demographics(None) is None
-
-
-async def test_orchestrator_demographics_mongo_down_is_graceful():
-    from app.services.orchestration.pipeline import AsyncOrchestrator
-
-    orch = AsyncOrchestrator(_Container(_service([], raise_exc=RuntimeError("down"))))
-    # Must return None (not raise) so the chat turn continues.
-    assert await orch._load_demographics("uid-123") is None
+    orch = AsyncOrchestrator(_Container())
+    identity = IdentityContext.from_request(session_id="s1", request_id="r1", user_id=None)
+    assert await orch._load_demographics(identity) is None
 
 
 async def test_orchestrator_demographics_relevant_injection_and_authority():
@@ -358,10 +312,62 @@ async def test_orchestrator_demographics_relevant_injection_and_authority():
         _authoritative_demographic_fields,
     )
 
-    orch = AsyncOrchestrator(_Container(_service([VALID_DOC])))
-    demo = await orch._load_demographics("uid-123")
+    from app.identity import IdentityContext
+
+    # Demographics now arrive ON the request, already projected to the AI-safe
+    # shape by the Backend. GM no longer reads the Backend's database, so there
+    # is no repository to stub here.
+    identity = IdentityContext.from_request(
+        session_id="s1",
+        request_id="r1",
+        user_id="01a0720a-7a47-7c8a-a9f4-e9274cb8fbef",
+        demographics={
+            "age": 36,
+            "sex": "male",
+            "height_cm": 175,
+            "weight_kg": 80,
+            "bmi": 26.1,
+            "state": "Telangana",
+            "city": "Hyderabad",
+        },
+    )
+
+    orch = AsyncOrchestrator(_Container())
+    demo = await orch._load_demographics(identity)
     assert demo is not None
-    # Mongo owns age + sex → they become authoritative (suppress conversational).
+    # The Backend owns age + sex → they become authoritative and suppress the
+    # conversational values.
     assert _authoritative_demographic_fields(demo) == frozenset({"age", "sex"})
     block = render_demographic_block(demo, {"intent": "lifestyle_query"}, "Am I overweight for my height?")
     assert "BMI" in block and "Height" in block
+
+
+async def test_orchestrator_demographics_absent_without_a_payload():
+    """
+    No demographics on the request → None, and the turn proceeds without them.
+    This is the fail-open guarantee: a Backend that sends nothing must never
+    break a chat turn.
+    """
+    from app.identity import IdentityContext
+    from app.services.orchestration.pipeline import AsyncOrchestrator
+
+    orch = AsyncOrchestrator(_Container())
+    identity = IdentityContext.from_request(
+        session_id="s1", request_id="r1", user_id="01a0720a-7a47-7c8a-a9f4-e9274cb8fbef"
+    )
+    assert await orch._load_demographics(identity) is None
+
+
+async def test_orchestrator_demographics_survives_a_malformed_payload():
+    """A nonsense payload is dropped, not raised — demographics are best-effort."""
+    from app.identity import IdentityContext
+    from app.services.orchestration.pipeline import AsyncOrchestrator
+
+    orch = AsyncOrchestrator(_Container())
+    identity = IdentityContext.from_request(
+        session_id="s1",
+        request_id="r1",
+        user_id="01a0720a-7a47-7c8a-a9f4-e9274cb8fbef",
+        demographics={"age": "not-a-number"},
+    )
+    assert await orch._load_demographics(identity) is None

@@ -206,10 +206,11 @@ class AsyncOrchestrator:
                     user_id=user_id, query_text=retrieval_query_text
                 )
 
-        # Authoritative demographics (MongoDB) — loaded ONCE. The object drives
-        # both the injected block and suppression of conflicting conversational
-        # age/sex in the session-state block (Mongo is the source of truth).
-        demo = await self._load_demographics(user_id)
+        # Authoritative demographics — supplied by the Backend on the request and
+        # read ONCE. The object drives both the injected block and suppression of
+        # conflicting conversational age/sex in the session-state block (the
+        # Backend is the source of truth).
+        demo = await self._load_demographics(identity)
         authoritative = _authoritative_demographic_fields(demo)
 
         # Stage 4: LLM answer
@@ -415,7 +416,7 @@ class AsyncOrchestrator:
                         user_id=user_id, query_text=retrieval_query_text
                     )
 
-            demo = await self._load_demographics(user_id)
+            demo = await self._load_demographics(identity)
             authoritative = _authoritative_demographic_fields(demo)
             memory_payload = assemble_memory_payload(
                 wm=wm,
@@ -627,7 +628,7 @@ class AsyncOrchestrator:
                     user_id=user_id, query_text=retrieval_query_text
                 )
 
-            demo = await self._load_demographics(user_id)
+            demo = await self._load_demographics(identity)
             authoritative = _authoritative_demographic_fields(demo)
             memory_payload = assemble_memory_payload(
                 wm=wm,
@@ -760,21 +761,30 @@ class AsyncOrchestrator:
             logger.exception("LLM answer failed: %s", exc)
             return ""
 
-    async def _load_demographics(self, user_id: str | None):
+    async def _load_demographics(self, identity: "IdentityContext"):
         """
-        Load the AI-safe DemographicContextV1 for this user (or None). Fail-open:
-        any error/missing data returns None so a turn never breaks. This is the
-        single Mongo read per turn — the same object drives both the injected
-        demographics block and the authoritative-field suppression in session
-        state (so the two demographic sources can't conflict).
+        Build the AI-safe DemographicContextV1 for this turn (or None).
+
+        The Backend now sends demographics ON the request. GM previously opened
+        its own MongoDB connection to the Backend's `users` collection and looked
+        the patient up by ObjectId — one service reading another's database,
+        which broke when the Backend moved to PostgreSQL.
+
+        Fail-open, as before: anything missing or malformed yields None so a turn
+        never breaks. The single object still drives both the injected block and
+        the authoritative-field suppression in session state, so the two
+        demographic sources cannot conflict.
         """
-        svc = getattr(self._c, "demographics", None)
-        if svc is None or not user_id:
+        payload = getattr(identity, "demographics", None)
+        if not payload:
             return None
         try:
-            return await svc.load(user_id)
+            from app.services.demographics.types import DemographicContextV1
+
+            ctx = DemographicContextV1(**payload)
+            return None if ctx.is_empty() else ctx
         except Exception as exc:  # noqa: BLE001 — fail open
-            logger.warning("Demographics load failed: %s", exc)
+            logger.warning("Demographics build failed: %s", exc)
             return None
 
     async def _load_episodic_context(self, *, user_id: str, query_text: str) -> str:
