@@ -122,7 +122,7 @@ def assemble_memory_payload(
     Compose the LLM's context block. Pure wrapper around the existing builder.
 
     ``authoritative_demographics`` names the demographic fields the canonical
-    MongoDB profile owns this turn; conversational values for those are
+    Backend profile owns this turn; conversational values for those are
     suppressed from the session-state block so they can't conflict with the
     authoritative profile.
     """

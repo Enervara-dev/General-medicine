@@ -230,6 +230,10 @@ class AsyncOrchestrator:
         from app.services.demographics import render_demographic_block
 
         demographic_context = render_demographic_block(demo, analysis, query)
+        _profile = self._health_profile_block(identity, analysis, query)
+        demographic_context = '\n\n'.join(
+            part for part in (demographic_context, _profile) if part
+        )
 
         with _Stage("llm", timing):
             answer = await self._answer_async(
@@ -450,6 +454,10 @@ class AsyncOrchestrator:
             from app.services.demographics import render_demographic_block
 
             demographic_context = render_demographic_block(demo, analysis, query)
+            _profile = self._health_profile_block(identity, analysis, query)
+            demographic_context = '\n\n'.join(
+                part for part in (demographic_context, _profile) if part
+            )
             system_prompt, user_prompt = _compose_answer_prompts(
                 query=query,
                 memory_context=combined_memory,
@@ -646,6 +654,10 @@ class AsyncOrchestrator:
             from app.services.demographics import render_demographic_block
 
             demographic_context = render_demographic_block(demo, analysis, query)
+            _profile = self._health_profile_block(identity, analysis, query)
+            demographic_context = '\n\n'.join(
+                part for part in (demographic_context, _profile) if part
+            )
             system_prompt, user_prompt = _compose_answer_prompts(
                 query=query,
                 memory_context=combined_memory,
@@ -761,6 +773,31 @@ class AsyncOrchestrator:
             logger.exception("LLM answer failed: %s", exc)
             return ""
 
+    def _health_profile_block(
+        self, identity: "IdentityContext", analysis, query: str
+    ) -> str:
+        """
+        Render the relevant slice of the Backend-supplied clinical profile.
+
+        Fails open exactly as demographics does: a missing, partial or malformed
+        profile yields an empty block and the turn proceeds. Profile data is used
+        for this prompt only. It is never persisted, embedded, forwarded to PMS,
+        or written to episodic memory.
+        """
+        raw = getattr(identity, "health_profile", None)
+        if not raw:
+            return ""
+        try:
+            from app.schemas.chat import HealthProfileEnvelope
+            from app.services.profile import render_health_profile_block
+
+            profile = HealthProfileEnvelope.model_validate(raw)
+            return render_health_profile_block(profile, analysis, query)
+        except Exception as exc:  # noqa: BLE001 - never break a turn
+            # Type name only: this path handles patient clinical data.
+            logger.warning("Health profile unusable (ignored): %s", type(exc).__name__)
+            return ""
+
     async def _load_demographics(self, identity: "IdentityContext"):
         """
         Build the AI-safe DemographicContextV1 for this turn (or None).
@@ -867,7 +904,7 @@ def _route_budget(mode: RoutingMode, cfg) -> tuple[int, int, int]:
 
 def _authoritative_demographic_fields(demo) -> frozenset[str]:
     """
-    Which demographic fields the canonical MongoDB profile authoritatively owns
+    Which demographic fields the Backend-supplied profile authoritatively owns
     this turn, among the ones the conversational session state can also carry
     (age, sex). Used to suppress conflicting conversational values from the
     session-state block. Height/weight/BMI/location are Mongo-only (the session
@@ -984,7 +1021,7 @@ def _compose_answer_prompts(
     )
 
     media_block = f"\n=== UPLOADED FILE ===\n{media_context}\n" if media_context else ""
-    # Authoritative current patient facts (from MongoDB) — kept SEPARATE from
+    # Authoritative current patient facts (Backend-supplied) — kept SEPARATE from
     # session/episodic memory and only present when relevant to this query.
     demo_block = f"\n{demographic_context}\n" if demographic_context else ""
 

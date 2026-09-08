@@ -82,6 +82,11 @@ class IdentityContext:
     # direct read of the Backend's own database. A mapping of the seven allowed
     # fields, or None when the Backend sent none.
     demographics: dict | None = None
+    # The wider ACTIVE clinical profile, also Backend-supplied and also
+    # request-scoped. Held as a plain dict because identity is a transport
+    # envelope; the typed model lives in app.schemas.chat, where it is
+    # validated before use.
+    health_profile: dict | None = None
 
     @classmethod
     def from_request(
@@ -93,6 +98,7 @@ class IdentityContext:
         consumer_id: str | None = None,
         user_assertion: str | None = None,
         demographics: dict | None = None,
+        health_profile: dict | None = None,
     ) -> "IdentityContext":
         """Adapter from the legacy HTTP transport fields to a typed identity."""
         return cls(
@@ -102,6 +108,7 @@ class IdentityContext:
             consumer_id=consumer_id or None,
             user_assertion=user_assertion or None,
             demographics=demographics or None,
+            health_profile=health_profile or None,
         )
 
     @classmethod
@@ -115,6 +122,7 @@ class IdentityContext:
         envelope_patient_id: str | None = None,
         envelope_consumer_id: str | None = None,
         envelope_demographics: dict | None = None,
+        envelope_health_profile: dict | None = None,
         user_assertion: str | None = None,
         identity_v1_enabled: bool = True,
     ) -> "IdentityContext":
@@ -132,11 +140,13 @@ class IdentityContext:
             user_id = envelope_patient_id or legacy_user_id
             consumer_id = envelope_consumer_id
             demographics = envelope_demographics
+            health_profile = envelope_health_profile
         else:
             session_id = legacy_session_id
             user_id = legacy_user_id
             consumer_id = None
             demographics = None
+            health_profile = None
         return cls(
             session_id=session_id,
             request_id=request_id,
@@ -146,6 +156,7 @@ class IdentityContext:
             # by which identity format the body used.
             user_assertion=user_assertion or None,
             demographics=demographics or None,
+            health_profile=health_profile or None,
         )
 
     @property

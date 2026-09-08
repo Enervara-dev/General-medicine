@@ -71,6 +71,11 @@ class PMSClient(Protocol):
     ) -> None:
         ...
 
+    async def get_memory_context(
+        self, *, patient_id: str, user_assertion: str | None, request_id: str = "-"
+    ) -> dict | None:
+        ...
+
 
 class NullPMSClient:
     """
@@ -88,6 +93,14 @@ class NullPMSClient:
             event.event_id, event.conversation_id,
             event.category.value, event.severity.value,
         )
+
+
+    async def get_memory_context(
+        self, *, patient_id: str, user_assertion: str | None = None, request_id: str = "-"
+    ) -> dict | None:
+        """No sink configured, so there is no context to read."""
+        logger.debug("[PMS:null] memory context requested but PMS is disabled")
+        return None
 
 
 class HttpPMSClient:
@@ -134,6 +147,9 @@ class HttpPMSClient:
         logging.getLogger("httpx").setLevel(logging.WARNING)
 
         self._path = ingest_path
+        # "/v1/memory/events" -> "/v1/memory". Derived rather than separately
+        # configured so the two paths cannot drift apart in deployment.
+        self._context_path_prefix = ingest_path.rsplit("/", 1)[0] or "/v1/memory"
         # Retained as a LOG label only. No longer sent as a header: under
         # Lattice, consumer identity is derived from the authenticated
         # principal, and a self-asserted header is a second, spoofable source.
@@ -254,6 +270,59 @@ class HttpPMSClient:
                       duration_ms=duration_ms, retries=retries, timeouts=timeouts,
                       reason="validation")
             return
+
+    async def get_memory_context(
+        self, *, patient_id: str, user_assertion: str | None, request_id: str = "-"
+    ) -> dict | None:
+        """
+        Read the patient's structured memory context from PMS.
+
+        Unlike ingestion this is a READ on the request path, so it returns the
+        payload rather than firing and forgetting. It is nonetheless non-fatal:
+        every failure returns None and the caller renders no Health Context. A
+        panel that cannot load must not cost the patient their chat.
+
+        The same hard stop as ingestion applies: without a verified assertion the
+        request is not sent. PMS scopes the read to the authenticated patient, so
+        `patient_id` is a routing detail and never the authorization.
+        """
+        import time
+
+        if not user_assertion:
+            self._log(request_id, "-", outcome="assertion_missing", status="-",
+                      duration_ms=0.0, retries=0, timeouts=0,
+                      reason="no user assertion; context not requested")
+            return None
+
+        path = f"{self._context_path_prefix}/patients/{patient_id}/context"
+        headers = {
+            "X-Identity-Contract-Version": self._contract_version,
+            USER_ASSERTION_HEADER: user_assertion,
+        }
+        t0 = time.monotonic()
+        try:
+            resp = await self._client.get(path, headers=headers)
+        except Exception as exc:  # noqa: BLE001 - never break the request
+            self._log(request_id, "-", outcome="context_error", status="-",
+                      duration_ms=(time.monotonic() - t0) * 1000.0,
+                      retries=0, timeouts=0, reason=type(exc).__name__)
+            return None
+
+        duration_ms = (time.monotonic() - t0) * 1000.0
+        if 200 <= resp.status_code < 300:
+            try:
+                body = resp.json()
+            except Exception:  # noqa: BLE001
+                self._log(request_id, "-", outcome="context_error", status=str(resp.status_code),
+                          duration_ms=duration_ms, retries=0, timeouts=0, reason="unparseable")
+                return None
+            self._log(request_id, "-", outcome="context_ok", status=str(resp.status_code),
+                      duration_ms=duration_ms, retries=0, timeouts=0, reason="-")
+            return body if isinstance(body, dict) else None
+
+        self._log(request_id, "-", outcome="context_failure", status=str(resp.status_code),
+                  duration_ms=duration_ms, retries=0, timeouts=0, reason="non-2xx")
+        return None
 
     async def _backoff(self, retries: int, retry_after: float | None = None) -> None:
         import asyncio

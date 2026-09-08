@@ -51,6 +51,29 @@ class FollowUpQuestionsData(BaseModel):
     questions: list[str] = Field(min_length=1)
 
 
+class QuestionData(BaseModel):
+    """
+    ONE question with selectable options, rendered as quick replies.
+
+    Distinct from ``follow_up_questions``, which carries free-text questions and
+    no options. A selection is submitted as a NORMAL user message through the
+    ordinary chat flow, so ``options`` are the literal strings the patient would
+    otherwise have typed: they must read as answers, not as button labels.
+
+    ``max_length`` is a guard, not a style preference. The model is instructed to
+    offer a short list; a run-away generation that produced twenty options would
+    render as an unusable wall of chips, so the schema refuses it and the
+    validator drops the line rather than passing it to the client.
+    """
+
+    model_config = _STRICT
+    question: str = Field(min_length=1)
+    options: list[str] = Field(min_length=2, max_length=6)
+    # True when the patient may type instead of choosing. The client keeps the
+    # composer enabled; it does not change how a selection is submitted.
+    allow_free_text: bool = True
+
+
 class WarningData(BaseModel):
     model_config = _STRICT
     text: str = Field(min_length=1)
@@ -159,6 +182,12 @@ class FollowUpQuestionsBlock(BaseModel):
     data: FollowUpQuestionsData
 
 
+class QuestionBlock(BaseModel):
+    model_config = _STRICT
+    type: Literal["question"]
+    data: QuestionData
+
+
 class WarningBlock(BaseModel):
     model_config = _STRICT
     type: Literal["warning"]
@@ -208,6 +237,7 @@ Block = Annotated[
         KeyPointsBlock,
         BulletListBlock,
         FollowUpQuestionsBlock,
+        QuestionBlock,
         WarningBlock,
         NextStepsBlock,
         ConditionListBlock,
@@ -229,6 +259,7 @@ BLOCK_TYPES: tuple[str, ...] = (
     "key_points",
     "bullet_list",
     "follow_up_questions",
+    "question",
     "warning",
     "next_steps",
     "condition_list",
@@ -269,6 +300,7 @@ __all__ = [
     "KeyPointsData",
     "BulletListData",
     "FollowUpQuestionsData",
+    "QuestionData",
     "WarningData",
     "NextStepsData",
     "ConditionListData",
@@ -286,6 +318,7 @@ __all__ = [
     "KeyPointsBlock",
     "BulletListBlock",
     "FollowUpQuestionsBlock",
+    "QuestionBlock",
     "WarningBlock",
     "NextStepsBlock",
     "ConditionListBlock",

@@ -446,6 +446,13 @@ _FOLLOWUP_LINE: str = (
     "materially change the differential or plan. Each question must carry its "
     "reasoning in one clause. Omit this block entirely if nothing would change "
     "the plan.\n"
+    "- question: PREFER this over follow_up_questions when the answer is one of "
+    "a small, known set. ONE question plus 2-6 `options`. Each option must be "
+    "written as the patient's own answer, because tapping one sends it as their "
+    "next message: write \"Headache\", not \"Select headache\". Offer an "
+    "explicit out (\"None of these\") whenever the list may not cover the "
+    "patient. Emit AT MOST ONE of `question` or `follow_up_questions` per turn, "
+    "never both.\n"
 )
 
 # OTC recommendation line — appended ONLY on a concluding answer (assessment /
@@ -634,10 +641,10 @@ def layer_block_plan(
             else "no further question is warranted"
         )
         no_followup_note = (
-            f"\n- DO NOT emit a follow_up_questions block — {reason}. If you feel "
+            f"\n- DO NOT emit a follow_up_questions or question block — {reason}. If you feel "
             f"the urge to ask something, resolve it yourself with your best "
             f"clinical judgement and put the CONCLUSION in your summary; a "
-            f"follow_up_questions block this turn will be discarded, leaving the "
+            f"follow_up_questions or question block this turn will be discarded, leaving the "
             f"patient with nothing."
         )
     else:
@@ -696,9 +703,12 @@ def layer_output_contract() -> str:
         "- Do not rename fields, add extra properties, or omit required fields.\n"
         "- `warning.severity` MUST be exactly one of: info, caution, critical. "
         "Every list field must be non-empty.\n"
+        "- `question.options` must be 2-6 entries, each phrased as the "
+        "patient's own reply. `question.allow_free_text` is optional and "
+        "defaults to true.\n"
         "Example (two lines):\n"
         '{"type":"summary","data":{"text":"Night-time cough may have several causes."}}\n'
-        '{"type":"follow_up_questions","data":{"questions":["Do you experience wheezing?","Do you have heartburn?"]}}'
+        '{"type":"question","data":{"question":"Which of these are you also experiencing?","options":["Headache","Body pain","Chills","Cough","None of these"]}}'
     )
 
 

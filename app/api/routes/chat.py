@@ -24,6 +24,7 @@ from app.schemas.chat import (
     ChatResponse,
     ImageChatResponse,
     MediaInfo,
+    HealthContext,
     SoapNote,
     SoapRequest,
 )
@@ -60,6 +61,9 @@ def _resolve_identity(
         envelope_consumer_id=(envelope.consumer_id if envelope else None),
         # Demographics now arrive WITH the request instead of being read out of
         # the Backend's own database.
+        envelope_health_profile=(
+            envelope.health_profile.model_dump() if envelope and envelope.health_profile else None
+        ),
         envelope_demographics=(
             envelope.demographics.model_dump(exclude_none=True)
             if envelope is not None and envelope.demographics is not None
@@ -217,6 +221,61 @@ async def chat_soap(req: SoapRequest, request: Request, ctx: ContainerDep) -> So
         request_id=request_id,
         generated_at=datetime.now(tz=timezone.utc).isoformat(),
     )
+
+
+@router.get("/chat/health-context", response_model=HealthContext)
+async def chat_health_context(
+    request: Request,
+    ctx: ContainerDep,
+    session_id: str = "",
+    user_id: str | None = None,
+) -> HealthContext:
+    """
+    The patient's longitudinal Health Context, read from the Patient Memory
+    Service.
+
+    PMS is the source of truth for this panel. It is deliberately NOT built from
+    Redis session memory or the Pinecone episodic index: those are per-session
+    working state and retrieval substrate, they expire, and neither is the
+    patient's record.
+
+    Authorization travels in the user assertion, exactly as it does for
+    ingestion. PMS scopes the read to the authenticated patient, so nothing here
+    can widen access by changing a parameter.
+
+    Fails open with `available: false`. A Health Context panel that cannot load
+    is a degraded panel, never a failed request.
+    """
+    request_id = _request_id(request)
+    identity = _resolve_identity(
+        ctx=ctx, request=request, request_id=request_id,
+        session_id=session_id, user_id=user_id, envelope=None,
+    )
+    if identity.patient_id is None:
+        return HealthContext(available=False, reason="no_patient", request_id=request_id)
+
+    context = await ctx.pms.get_memory_context(
+        patient_id=identity.patient_id.value,
+        user_assertion=identity.user_assertion,
+        request_id=request_id,
+    )
+    if context is None:
+        return HealthContext(available=False, reason="unavailable", request_id=request_id)
+
+    return HealthContext(
+        available=True,
+        request_id=request_id,
+        current_episodes=_context_list(context, "current_episodes"),
+        historical_episodes=_context_list(context, "historical_episodes"),
+        assertions=_context_list(context, "assertions"),
+        open_clarifications=int(context.get("open_clarifications") or 0),
+    )
+
+
+def _context_list(context: dict, key: str) -> list[dict]:
+    """PMS returns lists; be defensive so a shape change degrades, not crashes."""
+    value = context.get(key)
+    return [v for v in value if isinstance(v, dict)] if isinstance(value, list) else []
 
 
 @router.post("/chat/blocks")

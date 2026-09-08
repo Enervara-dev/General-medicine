@@ -117,7 +117,7 @@ def _state_lines(
     Render StructuredState as compact, non-empty bullet lines.
 
     ``authoritative_demographics`` names the demographic fields the canonical
-    MongoDB profile (DemographicContextV1) owns for this turn (e.g. {"age",
+    Backend profile (DemographicContextV1) owns for this turn (e.g. {"age",
     "sex"}). Those are suppressed here so a conversationally-extracted value
     can't silently conflict with the authoritative profile in the prompt. Any
     conversational age/sex the profile does NOT own is kept but clearly labelled
@@ -289,7 +289,7 @@ def build_memory_context(
     Args:
         wm: The assembled WorkingMemory from the retriever layer.
         authoritative_demographics: demographic fields owned by the canonical
-            MongoDB profile this turn; conversational values for these are
+            Backend profile this turn; conversational values for these are
             suppressed (see ``_state_lines``).
 
     Returns:
