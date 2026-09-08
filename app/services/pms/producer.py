@@ -94,7 +94,10 @@ class ClinicalMemoryProducer:
         verbatim. When it is absent the client refuses to send — GM does not
         substitute the unauthenticated ``identity.patient_id``.
         """
+        from app.services.pms._diag import log_emit_attempt, log_gate  # [PMS-DIAG]
+        log_emit_attempt(identity, self._client)  # [PMS-DIAG]
         if identity.patient_id is None:
+            log_gate("producer: identity.patient_id is None")  # [PMS-DIAG]
             return
         try:
             event = self._to_event(identity=identity, episode=episode, channel=channel)

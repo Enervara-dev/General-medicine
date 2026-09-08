@@ -180,6 +180,8 @@ class HttpPMSClient:
         # Deterministic: identical clinical content yields an identical key on every
         # delivery attempt, so PMS can collapse redeliveries. Doubles as the
         # correlation id, which makes a replay traceable across log lines.
+        from app.services.pms._diag import log_gate, log_outcome, log_reached_ingest  # [PMS-DIAG]
+        log_reached_ingest()  # [PMS-DIAG]
         idem_key = event.idempotency_key()
         event_id = idem_key[:16]
 
@@ -188,6 +190,7 @@ class HttpPMSClient:
         # manufacture a patient-memory write nobody authenticated, so the request is
         # not sent at all. The chat turn is unaffected (shadow memory is non-fatal).
         if not user_assertion:
+            log_gate("client: user_assertion missing; request not sent")  # [PMS-DIAG]
             self._log(request_id, event_id, outcome="assertion_missing", status="-",
                       duration_ms=0.0, retries=0, timeouts=0,
                       reason="no user assertion; request not sent")
@@ -346,6 +349,8 @@ class HttpPMSClient:
         timeouts: int,
         reason: str,
     ) -> None:
+        from app.services.pms._diag import log_outcome as _diag_outcome  # [PMS-DIAG]
+        _diag_outcome(outcome, status)  # [PMS-DIAG]
         # SECURITY: no patient id, no clinical text, no internal URL.
         logger.info(
             "pms_ingest request_id=%s event_id=%s consumer_id=%s outcome=%s "
@@ -458,6 +463,7 @@ def build_pms_client(settings) -> PMSClient:
             "URL in direct mode only."
         )
 
+    from app.services.pms._diag import note_transport; note_transport(transport_mode)  # [PMS-DIAG]
     auth = None
     if transport_mode == "lattice" and getattr(settings, "PMS_SIGV4_ENABLED", True):
         # Built here (not inside the client) so the transport seam stays injectable

@@ -141,5 +141,6 @@ async def build_container() -> AppContainer:
         pms=build_pms_client(settings),
         orchestrator=None,  # type: ignore[arg-type]  # filled below
     )
+    from app.services.pms._diag import log_client_selected; log_client_selected(container.pms)  # [PMS-DIAG]
     container.orchestrator = AsyncOrchestrator(container)
     return container
