@@ -116,7 +116,45 @@ def log_outcome(outcome: str, status: str) -> None:
         pass
 
 
+def log_auth_error(status_code: int, resp: Any) -> None:
+    """
+    401 only: log PMS's own ``error.message`` and nothing else.
+
+    A 401 from PMS is almost always a statement about the assertion or the
+    signing keys ("assertion signing key is unknown", "assertion expired"), and
+    that sentence is the whole diagnostic. Without it the caller sees only
+    `outcome=auth_failure status=401`, which does not distinguish a bad key from
+    a bad audience from a clock skew.
+
+    ONLY the ``message`` string is read. The response body is never logged
+    wholesale, headers are never touched, and the request (which carries the
+    assertion) is not referenced at all. The value is truncated and its double
+    quotes are neutralised so one log line stays one log line.
+
+    No-ops for any status other than 401, so the call site is a single line with
+    no surrounding condition.
+    """
+    if status_code != 401:
+        return
+    try:
+        message = None
+        body = resp.json()
+        if isinstance(body, dict):
+            error = body.get("error")
+            if isinstance(error, dict) and isinstance(error.get("message"), str):
+                message = error["message"]
+            elif isinstance(body.get("message"), str):
+                message = body["message"]
+        if not message or not message.strip():
+            logger.warning('pms_auth_error message="<absent>"')
+            return
+        logger.warning('pms_auth_error message="%s"', message.strip()[:200].replace('"', "'"))
+    except Exception:  # noqa: BLE001 - diagnostics must never raise
+        logger.warning('pms_auth_error message="<unreadable>"')
+
+
 __all__ = [
+    "log_auth_error",
     "note_transport",
     "log_client_selected",
     "log_emit_attempt",

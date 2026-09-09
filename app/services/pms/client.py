@@ -180,7 +180,7 @@ class HttpPMSClient:
         # Deterministic: identical clinical content yields an identical key on every
         # delivery attempt, so PMS can collapse redeliveries. Doubles as the
         # correlation id, which makes a replay traceable across log lines.
-        from app.services.pms._diag import log_gate, log_outcome, log_reached_ingest  # [PMS-DIAG]
+        from app.services.pms._diag import log_auth_error, log_gate, log_outcome, log_reached_ingest  # [PMS-DIAG]
         log_reached_ingest()  # [PMS-DIAG]
         idem_key = event.idempotency_key()
         event_id = idem_key[:16]
@@ -255,6 +255,7 @@ class HttpPMSClient:
             if sc in (401, 403):
                 # Rejected by PMS. Not retried: an identical request would be
                 # rejected identically.
+                log_auth_error(sc, resp)  # [PMS-DIAG]
                 self._log(request_id, event_id, outcome="auth_failure", status=str(sc),
                           duration_ms=duration_ms, retries=retries, timeouts=timeouts,
                           reason="unauthorized")
