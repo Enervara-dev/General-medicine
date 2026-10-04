@@ -98,6 +98,8 @@ asyncio_default_fixture_loop_scope = "session"
 testpaths = ["tests"]
 markers = [
     "episodic_integration: hits live Pinecone + Gemini APIs. Run with: pytest -m episodic_integration. Skip with: pytest -m 'not episodic_integration'",
+    "specialist_pinecone_readonly: read-only query/describe_index_stats against the live GM + specialist Pinecone accounts (SPECIALTY_PARITY_REPORT.md). Never upserts/deletes/modifies. Run with: pytest -m specialist_pinecone_readonly",
+    "specialty_e2e: live end-to-end validation of /chat, /chat/stream, /chat/blocks for all 7 specialties (TASK5_E2E_REPORT.md). Hits real Gemini + Pinecone, read-only. Run with: pytest -m specialty_e2e",
 ]
 
 [tool.ruff]

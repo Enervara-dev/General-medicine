@@ -179,6 +179,13 @@ class ChatRequest(BaseModel):
     # New identity contract (optional). Preferred over the legacy fields above
     # when ENABLE_IDENTITY_V1 is on; ignored/absent keeps legacy behaviour.
     identity: IdentityEnvelope | None = None
+    # Which clinical specialty persona/gatekeeper/PMS-identity to use for this
+    # turn — one of app.specialty.registry.SPECIALTY_KEYS (e.g. "cardiology",
+    # "dermatology", "ent", "ophthalmology", "orthopaedics", "pulmonology").
+    # Omitted, unrecognized, or "general_medicine" all resolve to the original,
+    # unparameterized general-medicine behavior — existing callers that never
+    # send this field are completely unaffected.
+    specialty: str | None = None
 
 
 class ChatResponse(BaseModel):

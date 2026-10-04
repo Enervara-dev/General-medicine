@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -22,9 +22,9 @@ from app.identity import IdentityContext
 from app.schemas.chat import (
     ChatRequest,
     ChatResponse,
+    HealthContext,
     ImageChatResponse,
     MediaInfo,
-    HealthContext,
     SoapNote,
     SoapRequest,
 )
@@ -103,7 +103,11 @@ async def chat(req: ChatRequest, request: Request, ctx: ContainerDep) -> ChatRes
         ctx=ctx, request=request, request_id=request_id, session_id=req.session_id,
         user_id=req.user_id, envelope=req.identity,
     )
-    result = await ctx.orchestrator.run(query=req.query, identity=identity)
+    # Resolved HERE, synchronously, before any pipeline work — an unrecognized
+    # specialty raises InvalidInput (app/specialty/registry.py) and is turned
+    # into a clean 400 by the app's existing AppError handler.
+    specialty_config = ctx.specialty_registry.get(req.specialty)
+    result = await ctx.orchestrator.run(query=req.query, identity=identity, specialty_config=specialty_config)
     return ChatResponse(
         answer=result.answer,
         session_id=result.session_id,
@@ -130,6 +134,7 @@ async def chat_image(
     query: str | None = Form(default=None),
     session_id: str | None = Form(default=None),
     user_id: str | None = Form(default=None),
+    specialty: str | None = Form(default=None),
 ) -> ImageChatResponse:
     """
     Upload an image alongside an optional question (multipart/form-data).
@@ -165,10 +170,12 @@ async def chat_image(
     identity = _resolve_identity(
         ctx=ctx, request=request, request_id=request_id, session_id=sid, user_id=user_id, envelope=None
     )
+    specialty_config = ctx.specialty_registry.get(specialty)
     result = await ctx.orchestrator.run(
         query=media_result.effective_query,
         identity=identity,
         media=media_result.attachment,
+        specialty_config=specialty_config,
     )
     return ImageChatResponse(
         answer=result.answer,
@@ -295,8 +302,12 @@ async def chat_blocks(req: ChatRequest, request: Request, ctx: ContainerDep) -> 
         ctx=ctx, request=request, request_id=request_id, session_id=req.session_id,
         user_id=req.user_id, envelope=req.identity,
     )
+    # Resolved before the StreamingResponse is constructed: once streaming
+    # begins, an exception can no longer be turned into a different HTTP
+    # status (headers are already sent) — see AsyncOrchestrator docstrings.
+    specialty_config = ctx.specialty_registry.get(req.specialty)
     ndjson = _to_ndjson(
-        ctx.orchestrator.stream_blocks(query=req.query, identity=identity)
+        ctx.orchestrator.stream_blocks(query=req.query, identity=identity, specialty_config=specialty_config)
     )
     return StreamingResponse(
         ndjson,
@@ -327,8 +338,9 @@ async def chat_stream_blocks(req: ChatRequest, request: Request, ctx: ContainerD
         ctx=ctx, request=request, request_id=request_id, session_id=req.session_id,
         user_id=req.user_id, envelope=req.identity,
     )
+    specialty_config = ctx.specialty_registry.get(req.specialty)
     sse_blocks = _blocks_to_sse(
-        ctx.orchestrator.stream_blocks(query=req.query, identity=identity)
+        ctx.orchestrator.stream_blocks(query=req.query, identity=identity, specialty_config=specialty_config)
     )
     return StreamingResponse(
         sse_blocks,
@@ -357,8 +369,9 @@ async def chat_stream(req: ChatRequest, request: Request, ctx: ContainerDep) -> 
         ctx=ctx, request=request, request_id=request_id, session_id=req.session_id,
         user_id=req.user_id, envelope=req.identity,
     )
+    specialty_config = ctx.specialty_registry.get(req.specialty)
     sse_stream = _to_sse(
-        ctx.orchestrator.stream(query=req.query, identity=identity)
+        ctx.orchestrator.stream(query=req.query, identity=identity, specialty_config=specialty_config)
     )
     return StreamingResponse(
         sse_stream,
@@ -375,11 +388,11 @@ async def _to_sse(events: AsyncIterator[dict]) -> AsyncIterator[bytes]:
     """Encode dict events as SSE `data: <json>\\n\\n` lines."""
     async for ev in events:
         payload = json.dumps(ev, ensure_ascii=False, default=str)
-        yield f"data: {payload}\n\n".encode("utf-8")
+        yield f"data: {payload}\n\n".encode()
     yield b"data: [DONE]\n\n"
 
 
-async def _to_ndjson(blocks: "AsyncIterator") -> AsyncIterator[bytes]:
+async def _to_ndjson(blocks: AsyncIterator) -> AsyncIterator[bytes]:
     """Encode validated Blocks as NDJSON — one `{...}\\n` line per block."""
     from graphrag.validators.answer_validator import block_to_line
 
@@ -387,11 +400,11 @@ async def _to_ndjson(blocks: "AsyncIterator") -> AsyncIterator[bytes]:
         yield block_to_line(block).encode("utf-8")
 
 
-async def _blocks_to_sse(blocks: "AsyncIterator") -> AsyncIterator[bytes]:
+async def _blocks_to_sse(blocks: AsyncIterator) -> AsyncIterator[bytes]:
     """Encode validated Blocks as SSE — `data: <json>\\n\\n` per block, then [DONE]."""
     async for block in blocks:
         payload = json.dumps(block.model_dump(mode="json"), ensure_ascii=False)
-        yield f"data: {payload}\n\n".encode("utf-8")
+        yield f"data: {payload}\n\n".encode()
     yield b"data: [DONE]\n\n"
 
 

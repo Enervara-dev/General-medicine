@@ -14,7 +14,7 @@ Backward compatibility:
 
 from __future__ import annotations
 
-from typing import ClassVar, Literal, Optional
+from typing import ClassVar, Literal
 
 from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -47,7 +47,7 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     # Optional API key for the /chat and /episodic routes. If unset, those
     # routes are open. If set, every request must send X-API-Key matching.
-    API_KEY: Optional[str] = None
+    API_KEY: str | None = None
     # Comma-separated list of allowed CORS origins for the frontend. Use "*"
     # to allow any origin (fine while the service is gated by API_KEY, but
     # tighten this for production once the real frontend URL is known).
@@ -60,13 +60,46 @@ class Settings(BaseSettings):
     EXPOSE_DIAGNOSTICS: bool = False
 
     # ----- Pinecone (vector index) -----
-    PINECONE_API_KEY: Optional[str] = None
+    PINECONE_API_KEY: str | None = None
     PINECONE_INDEX_NAME: str = "enervera"
+
+    # ----- Pinecone: separate per-account config for the unified specialty
+    # retrieval resolver (graphrag/retrieval/pinecone_accounts.py). NOT used
+    # by the live AsyncOrchestrator pipeline, which is unchanged and still
+    # reads PINECONE_API_KEY/PINECONE_INDEX_NAME above directly — these exist
+    # so a specialty's Pinecone account/index/namespace can be resolved
+    # config-driven for validation/tooling, per SPECIALTY_PARITY_REPORT.md.
+    #
+    # GM's own account. Falls back to PINECONE_API_KEY/PINECONE_INDEX_NAME
+    # above when unset, so an env with only the legacy vars still resolves.
+    GM_PINECONE_API_KEY: str | None = None
+    GM_PINECONE_INDEX: str | None = None
+    # Pinecone's actual unnamed/default namespace key is "" (empty string),
+    # confirmed live via describe_index_stats. Ops conventionally write the
+    # placeholder "__default__" in .env for readability; the resolver
+    # translates that placeholder to "" rather than querying a namespace
+    # literally named "__default__" (which does not exist and would return
+    # zero results). Any other value is used as a literal namespace.
+    GM_PINECONE_NAMESPACE: str | None = None
+
+    # The 6-specialty shared account. SPECIALIST_PINECONE_API_KEY/INDEX are
+    # the names this field set was DESIGNED around; the actual value seen in
+    # at least one deployed .env instead reuses the legacy, unprefixed
+    # PINECONE_API_KEY / a new PINECONE_INDEX var for this purpose (see
+    # SPECIALTY_PARITY_REPORT.md). The resolver prefers the SPECIALIST_-
+    # prefixed vars and falls back to PINECONE_API_KEY / PINECONE_INDEX so it
+    # works with either naming without requiring an env rewrite.
+    SPECIALIST_PINECONE_API_KEY: str | None = None
+    SPECIALIST_PINECONE_INDEX: str | None = None
+    # Legacy/alternate name actually observed in use for the specialist
+    # account's index (NOT the same field as PINECONE_INDEX_NAME above,
+    # which is GM's).
+    PINECONE_INDEX: str | None = None
 
     # ----- Neo4j (knowledge graph) -----
     NEO4J_URI: str = "bolt://127.0.0.1:7687"
     NEO4J_USERNAME: str = "neo4j"
-    NEO4J_PASSWORD: Optional[str] = None
+    NEO4J_PASSWORD: str | None = None
     # Master switch for the Stage-3 graph-traversal step. Currently OFF: the
     # Neo4j Aura instance is unreachable and graph relations add latency + noise
     # without value. Flip to true (or set env GRAPH_RETRIEVAL_ENABLED=true) to
@@ -74,7 +107,7 @@ class Settings(BaseSettings):
     GRAPH_RETRIEVAL_ENABLED: bool = False
 
     # ----- Google Gemini (LLM provider: answer, classifier, analyzer, extraction, cleaning) -----
-    GEMINI_API_KEY: Optional[str] = None
+    GEMINI_API_KEY: str | None = None
 
     # Most LLM roles use gemini-2.5-flash-lite. The final answer uses the heavier
     # gemini-2.5-flash for better clinical synthesis. Override any role via env.
@@ -102,7 +135,7 @@ class Settings(BaseSettings):
     VISION_MODEL: str = "gemini-2.5-flash"
 
     # Legacy — kept readable for backward compat but no longer required.
-    OPEN_ROUTER_KEY: Optional[str] = None
+    OPEN_ROUTER_KEY: str | None = None
 
     # Confidence-based stopping. The gatekeeper estimates a 0–100 confidence in
     # the leading diagnosis each turn (``diagnostic_confidence``). Once it reaches
@@ -165,7 +198,7 @@ class Settings(BaseSettings):
     ENABLE_IDENTITY_V1: bool = True
     # PMS connection (only used when ENABLE_PMS_SHADOW=true; unset → NullPMSClient).
     # PMS_BASE_URL is the internal ALB URL, read from config — never hardcoded.
-    PMS_BASE_URL: Optional[str] = None
+    PMS_BASE_URL: str | None = None
     PMS_INGEST_PATH: str = "/v1/memory/events"
     # ----- PMS transport ------------------------------------------------
     # "direct"  — CURRENT. GM reaches the PMS internal ALB over private VPC
@@ -200,7 +233,7 @@ class Settings(BaseSettings):
     PMS_TIMEOUT_MS: int = 1500
 
     # ----- PostgreSQL (longitudinal memory; required for new memory/ subsystem) -----
-    DATABASE_URL: Optional[str] = None
+    DATABASE_URL: str | None = None
     MEMORY_CACHE_TTL_SEC: int = 300
 
     # ----- Episodic memory (Pinecone-backed, isolated from longitudinal) -----
@@ -226,10 +259,17 @@ class Settings(BaseSettings):
     EPISODIC_EVAL_LABELS_PATH: str = "data/eval/labels.jsonl"
 
     # Per-mode required-field sets. Add new modes here as needed.
+    #
+    # NEO4J_PASSWORD is deliberately NOT listed here: Neo4j is gated entirely by
+    # GRAPH_RETRIEVAL_ENABLED (default false — see that field's docstring and
+    # AUDIT_REPORT.md §4/§10). Requiring Neo4j credentials unconditionally would
+    # fail startup even when the graph step is switched off, which is exactly
+    # the behavior this unification removes. See validate_required() below,
+    # which adds NEO4J_PASSWORD back to the requirement ONLY when the flag is on.
     _REQUIRED_BY_MODE: ClassVar[dict[Mode, tuple[str, ...]]] = {
-        "cli": ("PINECONE_API_KEY", "NEO4J_PASSWORD", "GEMINI_API_KEY"),
-        "api": ("PINECONE_API_KEY", "NEO4J_PASSWORD", "GEMINI_API_KEY"),
-        "ingest": ("PINECONE_API_KEY", "NEO4J_PASSWORD", "GEMINI_API_KEY"),
+        "cli": ("PINECONE_API_KEY", "GEMINI_API_KEY"),
+        "api": ("PINECONE_API_KEY", "GEMINI_API_KEY"),
+        "ingest": ("PINECONE_API_KEY", "GEMINI_API_KEY"),
     }
 
     def validate_required(self, mode: Mode) -> None:
@@ -240,6 +280,8 @@ class Settings(BaseSettings):
                 f"Unknown mode '{mode}'. Expected one of: "
                 f"{sorted(self._REQUIRED_BY_MODE)}"
             )
+        if self.GRAPH_RETRIEVAL_ENABLED:
+            required = (*required, "NEO4J_PASSWORD")
         missing = [name for name in required if not getattr(self, name)]
         if missing:
             raise ConfigError(

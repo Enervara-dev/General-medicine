@@ -1,5 +1,5 @@
-from dataclasses import dataclass, field
-from typing import List
+from dataclasses import dataclass
+
 from graphrag.query_understanding.query_types import QueryType
 
 
@@ -8,13 +8,23 @@ class QueryConfig:
     """
     Drives ALL pipeline behaviour for a given query type.
     Every downstream component reads from this — no hardcoded logic elsewhere.
+
+    NOTE: there is no per-query-type graph toggle here. Per AUDIT_REPORT.md
+    §4/§8, a ``graph_enabled`` field used to live on this dataclass but was
+    never read anywhere in the pipeline — only the global
+    ``Settings.GRAPH_RETRIEVAL_ENABLED`` switch and ``graph_hops > 0`` ever
+    gated the Neo4j call (app/services/orchestration/pipeline.py). That dead
+    field has been removed rather than wired in, since wiring it in would be
+    a behavior change and the task is to make the EXISTING global flag the
+    single source of truth, not to add new graph-gating logic. Set
+    ``graph_hops=0`` on a QueryConfig to skip graph traversal for that query
+    type regardless of the global flag.
     """
     query_type:             QueryType
     vector_top_k:           int         # how many candidates to pull from Pinecone
     reranker_top_k:         int         # how many to keep after reranking
-    graph_hops:             int         # 1 or 2-hop Neo4j traversal
-    graph_enabled:          bool        # whether to query Neo4j at all
-    priority_entity_types:  List[str]   # entity types to surface / boost
+    graph_hops:             int         # 1 or 2-hop Neo4j traversal; 0 = skip graph for this query type
+    priority_entity_types:  list[str]   # entity types to surface / boost
     goal:                   str         # human-readable description (logged)
     boost_drug_pairs:       bool = False  # special flag for drug_interaction only
 
@@ -29,7 +39,6 @@ QUERY_CONFIGS: dict[QueryType, QueryConfig] = {
         vector_top_k          = 15,      # oversample before reranker
         reranker_top_k        = 5,
         graph_hops            = 1,
-        graph_enabled         = True,
         priority_entity_types = ["disease", "symptom", "syndrome"],
         goal                  = "cause identification",
     ),
@@ -39,7 +48,6 @@ QUERY_CONFIGS: dict[QueryType, QueryConfig] = {
         vector_top_k          = 15,      # wider net for drug combos
         reranker_top_k        = 5,
         graph_hops            = 2,       # 2-hop to find indirect interactions
-        graph_enabled         = True,
         priority_entity_types = ["drug", "drug_class", "mechanism", "side_effect"],
         goal                  = "interaction and risk",
         boost_drug_pairs      = True,
@@ -50,7 +58,6 @@ QUERY_CONFIGS: dict[QueryType, QueryConfig] = {
         vector_top_k          = 15,
         reranker_top_k        = 5,
         graph_hops            = 1,
-        graph_enabled         = False,   # summary-driven, graph less important
         priority_entity_types = ["disease", "syndrome", "condition", "disorder"],
         goal                  = "clear explanation / definition",
     ),
@@ -60,7 +67,6 @@ QUERY_CONFIGS: dict[QueryType, QueryConfig] = {
         vector_top_k          = 20,      # deepest retrieval
         reranker_top_k        = 7,       # keep more for structured protocols
         graph_hops            = 1,
-        graph_enabled         = True,
         priority_entity_types = ["procedure", "drug", "treatment", "protocol", "therapy"],
         goal                  = "structured clinical protocol",
     ),
@@ -70,7 +76,6 @@ QUERY_CONFIGS: dict[QueryType, QueryConfig] = {
         vector_top_k          = 15,
         reranker_top_k        = 5,
         graph_hops            = 1,
-        graph_enabled         = True,
         priority_entity_types = ["test", "lab_value", "biomarker", "threshold"],
         goal                  = "lab result interpretation",
     ),
@@ -80,7 +85,6 @@ QUERY_CONFIGS: dict[QueryType, QueryConfig] = {
         vector_top_k          = 15,
         reranker_top_k        = 5,
         graph_hops            = 1,
-        graph_enabled         = True,
         priority_entity_types = ["outcome", "risk_factor", "survival", "mortality", "disease"],
         goal                  = "future risk / survival estimate",
     ),
@@ -90,7 +94,6 @@ QUERY_CONFIGS: dict[QueryType, QueryConfig] = {
         vector_top_k          = 0,
         reranker_top_k        = 0,
         graph_hops            = 0,
-        graph_enabled         = False,
         priority_entity_types = [],
         goal                  = "reject out of context / gibberish queries",
     ),
@@ -100,7 +103,6 @@ QUERY_CONFIGS: dict[QueryType, QueryConfig] = {
         vector_top_k          = 15,
         reranker_top_k        = 5,
         graph_hops            = 1,
-        graph_enabled         = True,
         priority_entity_types = [],
         goal                  = "general medical answer",
     ),

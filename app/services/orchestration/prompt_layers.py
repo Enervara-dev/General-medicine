@@ -27,7 +27,6 @@ Layers (in compose order):
 
 from __future__ import annotations
 
-
 # Risk tone surfaced at the top of the runtime layer. Keys: none | low |
 # medium | high | critical (from analysis.risk_level). Low / none stay
 # empty so the prompt doesn't carry irrelevant warnings.
@@ -94,7 +93,15 @@ _SUBSTANTIVE_QUERY_TYPES: frozenset[str] = frozenset({
 # Layer 1 — Behaviour rules (clinician identity)
 # ---------------------------------------------------------------------------
 
-def layer_core_identity() -> str:
+def layer_core_identity(persona: str | None = None) -> str:
+    """
+    ``persona`` is ``SpecialtyConfig.persona`` for the resolved specialty.
+    Defaults to the original general-medicine identity text when omitted, so
+    every pre-unification caller (none of which passed a specialty) is
+    unaffected.
+    """
+    if persona:
+        return persona
     return (
         "You are an experienced physician practising general (internal) "
         "medicine — calm, concise, warm, and clinically sharp. You handle the "
@@ -727,6 +734,7 @@ def compose_system_prompt(
     consolidate: bool = False,
     response_mode: str = "generative_answer",
     tools: list | None = None,
+    specialty_persona: str | None = None,
 ) -> str:
     """
     Compose the layered system prompt for the clinical answer LLM.
@@ -756,6 +764,9 @@ def compose_system_prompt(
             the question-only gathering phase to a consolidated summary. Left
             ``False``, a triage turn stays gathering (asks, doesn't summarise).
         tools: Reserved hook for future tool-calling. Currently unused.
+        specialty_persona: ``SpecialtyConfig.persona`` for the resolved
+            specialty. Omitted (``None``) preserves the original hardcoded
+            general-medicine identity text — see ``layer_core_identity``.
 
     Returns:
         The fully assembled system prompt string with empty layers omitted.
@@ -776,7 +787,7 @@ def compose_system_prompt(
         format_layers = [layer_formatting_constraints(query_type=query_type)]
 
     layers = [
-        layer_core_identity(),
+        layer_core_identity(specialty_persona),
         layer_safety_policy(),
         layer_runtime_modifiers(risk_level=risk_level, has_name=has_name),
         layer_session_state_instructions(),

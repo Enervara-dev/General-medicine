@@ -348,7 +348,14 @@ class MedicalQueryAnalyzer:
             logger.warning("GEMINI_API_KEY not set in .env")
         self.model = settings.QUERY_ANALYZER_MODEL or DEFAULT_LITE_MODEL
 
-    def analyze(self, query_text: str) -> dict:
+    def analyze(self, query_text: str, *, system_prompt: str | None = None) -> dict:
+        """
+        ``system_prompt`` selects the gatekeeper prompt to use. Defaults to the
+        module-level ``SYSTEM_PROMPT`` (general-medicine behavior, unchanged)
+        when omitted — this preserves every existing caller's behavior
+        byte-for-byte. Callers that resolve a specialty pass
+        ``specialty_config.gatekeeper_system_prompt`` instead.
+        """
         if not self.api_key:
             return {"error": "API key missing"}
 
@@ -356,7 +363,7 @@ class MedicalQueryAnalyzer:
             content = generate_text(
                 query_text,
                 model=self.model,
-                system_instruction=SYSTEM_PROMPT,
+                system_instruction=system_prompt or SYSTEM_PROMPT,
                 temperature=0,
                 json_mode=True,
             )
@@ -374,8 +381,11 @@ class MedicalQueryAnalyzer:
             logger.error(f"Failed to parse JSON from LLM: {e}\nRaw output: {content}")
             return {}
 
-    async def aanalyze(self, query_text: str) -> dict:
-        """Async sibling of analyze(). Required by the FastAPI request path."""
+    async def aanalyze(self, query_text: str, *, system_prompt: str | None = None) -> dict:
+        """Async sibling of analyze(). Required by the FastAPI request path.
+
+        See ``analyze()`` for ``system_prompt`` semantics.
+        """
         if not self.api_key:
             return {"error": "API key missing"}
 
@@ -383,7 +393,7 @@ class MedicalQueryAnalyzer:
             content = await generate_text_async(
                 query_text,
                 model=self.model,
-                system_instruction=SYSTEM_PROMPT,
+                system_instruction=system_prompt or SYSTEM_PROMPT,
                 temperature=0,
                 json_mode=True,
             )

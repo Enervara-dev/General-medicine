@@ -23,8 +23,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, AsyncIterator
+from typing import TYPE_CHECKING, Any
 
 from app.services.memory.session import (
     assemble_memory_payload,
@@ -33,7 +34,6 @@ from app.services.memory.session import (
     save_after_turn,
 )
 from graphrag.query_understanding import (
-    QueryType,
     RoutingMode,
     decide_routing,
     get_config,
@@ -44,6 +44,7 @@ if TYPE_CHECKING:
     from app.container import AppContainer
     from app.identity import IdentityContext
     from app.services.media.types import MediaAttachment
+    from app.specialty.models import SpecialtyConfig
     from graphrag.schemas.blocks import Block
 
 logger = logging.getLogger(__name__)
@@ -62,7 +63,7 @@ class ChatResult:
 
 
 class AsyncOrchestrator:
-    def __init__(self, container: "AppContainer") -> None:
+    def __init__(self, container: AppContainer) -> None:
         self._c = container
 
     # ------------------------------------------------------------------
@@ -73,8 +74,9 @@ class AsyncOrchestrator:
         self,
         *,
         query: str,
-        identity: "IdentityContext",
-        media: "MediaAttachment | None" = None,
+        identity: IdentityContext,
+        media: MediaAttachment | None = None,
+        specialty_config: SpecialtyConfig | None = None,
     ) -> ChatResult:
         """
         Run one full pipeline turn.
@@ -86,10 +88,20 @@ class AsyncOrchestrator:
         are sent to the answer LLM (photo route only), its extracted text is
         injected as answer context, and a metadata-only note is recorded in
         memory. When ``media`` is None this is the unchanged text-only flow.
+
+        ``specialty_config`` is the ALREADY-RESOLVED SpecialtyConfig (persona,
+        gatekeeper prompt, PMS source_service, Pinecone account/namespace via
+        the retriever factory). Resolution (including rejecting an unknown
+        specialty string) happens once, at the HTTP route boundary
+        (app/api/routes/chat.py), before any streaming response begins —
+        never here. ``None`` resolves to "general_medicine" internally (the
+        original, unparameterized behavior), so a caller that omits it (any
+        internal/test caller) is unaffected.
         """
         session_id = identity.session_id
         user_id = identity.user_id
         request_id = identity.request_id
+        specialty_config = specialty_config or self._c.specialty_registry.get(None)
 
         timing: dict[str, int] = {}
         t0 = time.monotonic()
@@ -109,7 +121,9 @@ class AsyncOrchestrator:
             analysis: dict[str, Any] = {}
         else:
             with _Stage("analyze", timing):
-                analysis = await self._c.analyzer.aanalyze(analyzer_input)
+                analysis = await self._c.analyzer.aanalyze(
+                    analyzer_input, system_prompt=specialty_config.gatekeeper_system_prompt
+                )
 
         # Short-circuit: refuse / emergency_redirect
         final_action = (analysis or {}).get("final_action")
@@ -161,14 +175,19 @@ class AsyncOrchestrator:
         vector_top_k, reranker_top_k, graph_hops = _route_budget(routing_mode, cfg)
 
         # Stage 1: Pinecone (sync client → thread)
+        # Resolved via the retriever factory, not self._c.vector_retriever
+        # directly: Request -> specialty_config -> resolve_pinecone_account()
+        # -> (retriever, namespace). No specialty-name branching here.
         retrieval_query_text = build_retrieval_query(active_query, wm)
         if vector_top_k > 0:
+            retriever, namespace = self._c.vector_retriever_factory.resolve(specialty_config)
             with _Stage("vector_retrieve", timing):
                 matches = await asyncio.to_thread(
-                    self._c.vector_retriever.retrieve,
+                    retriever.retrieve,
                     retrieval_query_text,
                     vector_top_k,
                     reranker_top_k,
+                    namespace=namespace,
                 )
         else:
             matches = []
@@ -248,6 +267,7 @@ class AsyncOrchestrator:
                 media_context=media.context_text if media else "",
                 media=media.parts if media else None,
                 demographic_context=demographic_context,
+                specialty_persona=specialty_config.persona,
             )
 
         if followup_questions and answer:
@@ -264,7 +284,11 @@ class AsyncOrchestrator:
 
         # Stage 5: Episodic ingest (fire-and-forget; never blocks response)
         if user_id and self._c.episodic is not None:
-            asyncio.create_task(self._ingest_episodic_safe(identity=identity, utterance=stored_query))
+            asyncio.create_task(
+                self._ingest_episodic_safe(
+                    identity=identity, utterance=stored_query, specialty_config=specialty_config
+                )
+            )
 
         # Stage 5b: Session save
         with _Stage("session_save", timing):
@@ -305,7 +329,8 @@ class AsyncOrchestrator:
         self,
         *,
         query: str,
-        identity: "IdentityContext",
+        identity: IdentityContext,
+        specialty_config: SpecialtyConfig | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """
         Yield SSE-shaped events as the pipeline progresses.
@@ -319,6 +344,10 @@ class AsyncOrchestrator:
         The pre-LLM stages run exactly as in run(); only Stage 4 changes
         from a single await to an async iterator. After the stream ends we
         run session_save + fire-and-forget episodic ingest just like run().
+
+        See run()'s docstring for ``specialty_config`` resolution semantics —
+        it is resolved (and an unknown specialty string rejected) once, at
+        the HTTP route boundary, before this generator starts.
         """
         from app.services.llm.streaming import stream_gemini_tokens
         from graphrag.config.settings import settings as cfg
@@ -327,6 +356,7 @@ class AsyncOrchestrator:
         session_id = identity.session_id
         user_id = identity.user_id
         request_id = identity.request_id
+        specialty_config = specialty_config or self._c.specialty_registry.get(None)
 
         timing: dict[str, int] = {}
         t0 = time.monotonic()
@@ -347,7 +377,9 @@ class AsyncOrchestrator:
                 analysis: dict[str, Any] = {}
             else:
                 with _Stage("analyze", timing):
-                    analysis = await self._c.analyzer.aanalyze(analyzer_input)
+                    analysis = await self._c.analyzer.aanalyze(
+                        analyzer_input, system_prompt=specialty_config.gatekeeper_system_prompt
+                    )
 
             final_action = (analysis or {}).get("final_action")
             if analysis and "error" not in analysis and final_action in {"refuse", "emergency_redirect", "mental_health_crisis"}:
@@ -381,12 +413,14 @@ class AsyncOrchestrator:
 
             retrieval_query_text = build_retrieval_query(active_query, wm)
             if vector_top_k > 0:
+                retriever, namespace = self._c.vector_retriever_factory.resolve(specialty_config)
                 with _Stage("vector_retrieve", timing):
                     matches = await asyncio.to_thread(
-                        self._c.vector_retriever.retrieve,
+                        retriever.retrieve,
                         retrieval_query_text,
                         vector_top_k,
                         reranker_top_k,
+                        namespace=namespace,
                     )
             else:
                 matches = []
@@ -467,6 +501,7 @@ class AsyncOrchestrator:
                 query_type=intent_str,
                 risk_level=str((analysis or {}).get("risk_level") or "none"),
                 demographic_context=demographic_context,
+                specialty_persona=specialty_config.persona,
             )
 
             llm_t0 = time.monotonic()
@@ -496,7 +531,9 @@ class AsyncOrchestrator:
             # ------------------------------------------------------------------
             if user_id and self._c.episodic is not None:
                 asyncio.create_task(
-                    self._ingest_episodic_safe(identity=identity, utterance=query)
+                    self._ingest_episodic_safe(
+                        identity=identity, utterance=query, specialty_config=specialty_config
+                    )
                 )
 
             with _Stage("session_save", timing):
@@ -525,8 +562,9 @@ class AsyncOrchestrator:
         self,
         *,
         query: str,
-        identity: "IdentityContext",
-    ) -> "AsyncIterator[Block]":
+        identity: IdentityContext,
+        specialty_config: SpecialtyConfig | None = None,
+    ) -> AsyncIterator[Block]:
         """
         STAGE-4 answer as a stream of validated UI blocks.
 
@@ -536,6 +574,8 @@ class AsyncOrchestrator:
         without buffering the whole answer. refuse / emergency short-circuits
         yield canned builder blocks instead of calling the LLM. The route
         encodes each Block as one NDJSON line.
+
+        See run()'s docstring for ``specialty_config`` resolution semantics.
         """
         from app.services.llm.streaming import stream_gemini_tokens
         from graphrag.config.settings import settings as cfg
@@ -547,8 +587,9 @@ class AsyncOrchestrator:
         session_id = identity.session_id
         user_id = identity.user_id
         request_id = identity.request_id
+        specialty_config = specialty_config or self._c.specialty_registry.get(None)
 
-        emitted: list["Block"] = []
+        emitted: list[Block] = []
         try:
             bundle = await load_session(self._c.session_manager, session_id, user_id=user_id)
             session = bundle.session
@@ -560,7 +601,9 @@ class AsyncOrchestrator:
             if trivial_skip:
                 analysis: dict[str, Any] = {}
             else:
-                analysis = await self._c.analyzer.aanalyze(analyzer_input)
+                analysis = await self._c.analyzer.aanalyze(
+                    analyzer_input, system_prompt=specialty_config.gatekeeper_system_prompt
+                )
 
             # Canned short-circuit — refuse / emergency. NDJSON blocks, no LLM.
             final_action = (analysis or {}).get("final_action")
@@ -604,9 +647,11 @@ class AsyncOrchestrator:
 
             retrieval_query_text = build_retrieval_query(active_query, wm)
             if vector_top_k > 0:
+                retriever, namespace = self._c.vector_retriever_factory.resolve(specialty_config)
                 matches = await asyncio.to_thread(
-                    self._c.vector_retriever.retrieve,
+                    retriever.retrieve,
                     retrieval_query_text, vector_top_k, reranker_top_k,
+                    namespace=namespace,
                 )
             else:
                 matches = []
@@ -675,6 +720,7 @@ class AsyncOrchestrator:
                 response_mode=response_mode,
                 demographic_context=demographic_context,
                 output_format="blocks",
+                specialty_persona=specialty_config.persona,
             )
 
             token_stream = stream_gemini_tokens(
@@ -710,14 +756,20 @@ class AsyncOrchestrator:
 
         except Exception as exc:
             logger.exception("Block stream pipeline failed: %s", exc)
-            # Surface a minimal block so the client isn't left hanging mid-stream.
-            from graphrag.schemas.blocks import SummaryBlock, SummaryData
+            # Surface a terminal warning block so the client isn't left hanging
+            # mid-stream with a silently dropped connection. Mirrors
+            # RAG-pulmonology's api.py::ndjson_stream() error path (see
+            # AUDIT_REPORT.md §6/§7): a `warning` block, not a bare `summary`,
+            # so the client can distinguish "something failed" from a normal
+            # answer and render it accordingly.
+            from graphrag.schemas.blocks import WarningBlock, WarningData
 
-            yield SummaryBlock(
-                type="summary",
-                data=SummaryData(
+            yield WarningBlock(
+                type="warning",
+                data=WarningData(
                     text="Sorry — something went wrong while generating the answer. "
-                    "Please try again."
+                    "Please try again.",
+                    severity="info",
                 ),
             )
 
@@ -737,16 +789,21 @@ class AsyncOrchestrator:
         goal: str,
         risk_level: str = "none",
         media_context: str = "",
-        media: "list | None" = None,
+        media: list | None = None,
         demographic_context: str = "",
+        specialty_persona: str | None = None,
     ) -> str:
         """
         Non-streaming Gemini answer. Reuses GeminiLLM's prompt assembly but
         bypasses the sync stdout-printing path. When ``media`` parts are given
         the answer call is multimodal; ``media_context`` adds extracted text.
+
+        ``specialty_persona`` is forwarded to ``_compose_answer_prompts`` ->
+        ``compose_system_prompt`` — omitted, it falls back to the original
+        general-medicine identity text (see prompt_layers.layer_core_identity).
         """
-        from graphrag.llm.gemini_client import DEFAULT_MODEL, generate_text_async
         from graphrag.config.settings import settings as cfg
+        from graphrag.llm.gemini_client import DEFAULT_MODEL, generate_text_async
 
         system_prompt, user_prompt = _compose_answer_prompts(
             query=query,
@@ -758,6 +815,7 @@ class AsyncOrchestrator:
             risk_level=risk_level,
             media_context=media_context,
             demographic_context=demographic_context,
+            specialty_persona=specialty_persona,
         )
         # Vision-capable model when an image is attached; text model otherwise.
         model = (cfg.VISION_MODEL if media else cfg.ANSWER_MODEL) or DEFAULT_MODEL
@@ -774,7 +832,7 @@ class AsyncOrchestrator:
             return ""
 
     def _health_profile_block(
-        self, identity: "IdentityContext", analysis, query: str
+        self, identity: IdentityContext, analysis, query: str
     ) -> str:
         """
         Render the relevant slice of the Backend-supplied clinical profile.
@@ -798,7 +856,7 @@ class AsyncOrchestrator:
             logger.warning("Health profile unusable (ignored): %s", type(exc).__name__)
             return ""
 
-    async def _load_demographics(self, identity: "IdentityContext"):
+    async def _load_demographics(self, identity: IdentityContext):
         """
         Build the AI-safe DemographicContextV1 for this turn (or None).
 
@@ -837,13 +895,22 @@ class AsyncOrchestrator:
             return ""
 
     async def _ingest_episodic_safe(
-        self, *, identity: "IdentityContext", utterance: str
+        self,
+        *,
+        identity: IdentityContext,
+        utterance: str,
+        specialty_config: SpecialtyConfig | None = None,
     ) -> None:
         """
         Ingest the turn into episodic memory (existing behaviour) AND, once the
         clinical extractor has produced an episode, hand that episode to the PMS
         producer. This is THE integration point after clinical extraction — the
         producer's wired client is NullPMSClient today, so nothing is sent yet.
+
+        ``specialty_config.source_service`` becomes the PMS event's
+        ``source.service`` (provenance only, never authorization). Omitted ->
+        ``ClinicalMemoryProducer``'s own default ("general-medicine"), so
+        existing callers are unaffected.
         """
         try:
             result = await self._c.episodic.ingest_pipeline.run(
@@ -858,10 +925,14 @@ class AsyncOrchestrator:
         # is fail-open and (today) a no-op sink, so the turn is never affected.
         episode = getattr(result, "stored", None)
         if episode is not None:
-            from app.services.pms import ClinicalMemoryProducer
+            from app.services.pms import SPECIALTY_SERVICE_DEFAULT, ClinicalMemoryProducer
 
             await ClinicalMemoryProducer(self._c.pms).emit_from_episode(
-                identity=identity, episode=episode
+                identity=identity,
+                episode=episode,
+                source_service=(
+                    specialty_config.source_service if specialty_config else SPECIALTY_SERVICE_DEFAULT
+                ),
             )
 
     @staticmethod
@@ -886,7 +957,7 @@ class _Stage:
         self._sink = sink
         self._t0 = 0.0
 
-    def __enter__(self) -> "_Stage":
+    def __enter__(self) -> _Stage:
         self._t0 = time.monotonic()
         return self
 
@@ -920,7 +991,7 @@ def _authoritative_demographic_fields(demo) -> frozenset[str]:
     return frozenset(fields)
 
 
-def _answer_state_block(show_doctor_summary: bool) -> "Block":
+def _answer_state_block(show_doctor_summary: bool) -> Block:
     """Build the trailing control block carrying per-turn answer state."""
     from graphrag.schemas.blocks import AnswerStateBlock, AnswerStateData
 
@@ -966,8 +1037,8 @@ def _should_consolidate(
     under-counts), or the gatekeeper is already confident. Keeps summaries as
     checkpoints, and guarantees the interview can't collect info forever.
     """
-    from Memory_Layer.session_memory import count_clinical_facts
     from graphrag.domain.messages import parse_diagnostic_confidence
+    from Memory_Layer.session_memory import count_clinical_facts
 
     if count_clinical_facts(wm.state) >= settings.CONSOLIDATE_MIN_FACTS:
         return True
@@ -993,6 +1064,7 @@ def _compose_answer_prompts(
     response_mode: str = "generative_answer",
     media_context: str = "",
     demographic_context: str = "",
+    specialty_persona: str | None = None,
 ) -> tuple[str, str]:
     """
     Compose the (system, user) prompt pair for the answer LLM.
@@ -1005,6 +1077,9 @@ def _compose_answer_prompts(
     prose (default — /chat + /chat/stream) vs NDJSON blocks (/chat/blocks).
     ``media_context`` (optional) carries a caption / extracted document text for
     an uploaded image and is injected as its own block when present.
+    ``specialty_persona`` (optional) is the resolved specialty's identity text
+    — forwarded to ``compose_system_prompt``; omitted, the default
+    general-medicine persona is used (unchanged pre-unification behavior).
     """
     from app.services.orchestration.prompt_layers import compose_system_prompt
 
@@ -1018,6 +1093,7 @@ def _compose_answer_prompts(
         consolidate=consolidate,
         response_mode=response_mode,
         output_format=output_format,
+        specialty_persona=specialty_persona,
     )
 
     media_block = f"\n=== UPLOADED FILE ===\n{media_context}\n" if media_context else ""

@@ -42,6 +42,11 @@ logger = logging.getLogger(__name__)
 
 # Mirrors the assertion's `azp`. PMS stays specialty-agnostic: this is
 # provenance, never authorization.
+#
+# Default/fallback value only — used when the caller doesn't resolve a
+# specialty (preserves pre-unification behavior byte-for-byte). The actual
+# per-request value comes from SpecialtyConfig.source_service, passed as
+# ``source_service`` to ``emit_from_episode`` below.
 SPECIALTY_SERVICE = "general-medicine"
 
 
@@ -82,9 +87,10 @@ class ClinicalMemoryProducer:
     async def emit_from_episode(
         self,
         *,
-        identity: "IdentityContext",
-        episode: "Episode",
+        identity: IdentityContext,
+        episode: Episode,
         channel: SourceChannel = SourceChannel.PATIENT_CONVERSATION,
+        source_service: str = SPECIALTY_SERVICE,
     ) -> None:
         """
         Emit ONE event for a freshly-extracted episode. Never raises: producing PMS
@@ -93,6 +99,12 @@ class ClinicalMemoryProducer:
         The user assertion is taken from the request-scoped identity and forwarded
         verbatim. When it is absent the client refuses to send — GM does not
         substitute the unauthenticated ``identity.patient_id``.
+
+        ``source_service`` becomes ``SourceRef.service`` on the wire — PMS's
+        provenance field, never an authorization input. Defaults to
+        ``SPECIALTY_SERVICE`` ("general-medicine") so a caller that doesn't
+        resolve a specialty produces byte-identical events to before. Callers
+        that resolved a specialty pass ``specialty_config.source_service``.
         """
         from app.services.pms._diag import log_emit_attempt, log_gate  # [PMS-DIAG]
         log_emit_attempt(identity, self._client)  # [PMS-DIAG]
@@ -100,7 +112,9 @@ class ClinicalMemoryProducer:
             log_gate("producer: identity.patient_id is None")  # [PMS-DIAG]
             return
         try:
-            event = self._to_event(identity=identity, episode=episode, channel=channel)
+            event = self._to_event(
+                identity=identity, episode=episode, channel=channel, source_service=source_service
+            )
             await self._client.ingest_clinical_memory(
                 event,
                 user_assertion=identity.user_assertion,
@@ -111,7 +125,11 @@ class ClinicalMemoryProducer:
 
     @staticmethod
     def _to_event(
-        *, identity: "IdentityContext", episode: "Episode", channel: SourceChannel
+        *,
+        identity: IdentityContext,
+        episode: Episode,
+        channel: SourceChannel,
+        source_service: str = SPECIALTY_SERVICE,
     ) -> PmsMemoryEventV1:
         """Translate an internal Episode into the canonical wire contract.
 
@@ -142,7 +160,7 @@ class ClinicalMemoryProducer:
             event_id=digest,
             conversation_id=identity.session_id,
             turn_ref=identity.request_id or digest,
-            source=SourceRef(service=SPECIALTY_SERVICE, channel=channel),
+            source=SourceRef(service=source_service, channel=channel),
             occurred_at=occurred,
             category=_CATEGORY_MAP.get(episode.category.value, ClinicalCategory.OTHER),
             severity=_SEVERITY_MAP.get(episode.severity.value, ClinicalSeverity.UNKNOWN),

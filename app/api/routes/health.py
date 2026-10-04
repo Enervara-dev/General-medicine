@@ -54,12 +54,13 @@ async def readiness(request: Request) -> HealthStatus:
     except Exception as exc:
         checks["pinecone"] = f"fail: {exc.__class__.__name__}"
 
-    # Neo4j — verify_connectivity wrapped
+    # Neo4j — "disabled" (no connection attempted) when GRAPH_RETRIEVAL_ENABLED
+    # is false, "ok" when enabled and reachable, same as the Redis ok/fallback
+    # distinction above.
     try:
-        await asyncio.wait_for(container.ping_neo4j(), timeout=3.0)
-        checks["neo4j"] = "ok"
+        checks["neo4j"] = await asyncio.wait_for(container.ping_neo4j(), timeout=3.0)
     except Exception as exc:
         checks["neo4j"] = f"fail: {exc.__class__.__name__}"
 
-    overall = "ok" if all(v in ("ok", "fallback") for v in checks.values()) else "degraded"
+    overall = "ok" if all(v in ("ok", "fallback", "disabled") for v in checks.values()) else "degraded"
     return HealthStatus(status=overall, checks=checks)

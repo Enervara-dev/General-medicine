@@ -1,6 +1,12 @@
+from typing import TYPE_CHECKING
+
 from neo4j import GraphDatabase
+
 from graphrag.config.settings import Config
 from graphrag.utils.logger import get_logger
+
+if TYPE_CHECKING:
+    from app.specialty.models import SpecialtyConfig
 
 logger = get_logger(__name__)
 
@@ -22,12 +28,22 @@ class Neo4jRetriever:
             keep_alive=True,
         )
 
-    def retrieve_relations(self, entities: list, hops: int = 1, limit: int = 20) -> list:
+    def retrieve_relations(
+        self,
+        entities: list,
+        hops: int = 1,
+        limit: int = 20,
+        *,
+        specialty: "SpecialtyConfig | None" = None,
+    ) -> list:
         """
         Traverse the knowledge graph for `entities`.
 
         hops=1 → direct (A)-[r]-(B)
         hops=2 → indirect (A)-[r1]-(M)-[r2]-(B)  — used for drug interactions
+
+        ``specialty`` is accepted but NOT used to filter — see
+        graphrag/retrieval/interface.py. Traversal behavior is unchanged.
         """
         logger.info(
             f"🕸️  [2/3] Graph traversal  →  hops: {hops}  |  "
@@ -85,3 +101,54 @@ class Neo4jRetriever:
     def close(self):
         if self.driver:
             self.driver.close()
+
+
+class NullNeo4jRetriever:
+    """
+    No-op stand-in used when ``GRAPH_RETRIEVAL_ENABLED`` is false (the
+    default — AUDIT_REPORT.md §4/§10).
+
+    Opens no socket, requires no Neo4j credentials, and never raises at
+    construction or close — so the service starts and runs with Neo4j
+    completely absent. ``retrieve_relations`` always returns ``[]``, matching
+    what the real retriever already degrades to on connection failure, so
+    callers need no branching on which implementation they hold.
+    """
+
+    driver = None
+
+    def retrieve_relations(
+        self,
+        entities: list,
+        hops: int = 1,
+        limit: int = 20,
+        *,
+        specialty: "SpecialtyConfig | None" = None,
+    ) -> list:
+        return []
+
+    def retrieve_1hop_relations(self, entities: list, limit: int = 20) -> list:
+        return []
+
+    def close(self) -> None:
+        pass
+
+
+def build_neo4j_retriever(enabled: bool) -> "Neo4jRetriever | NullNeo4jRetriever":
+    """
+    Factory used by app.container.build_container().
+
+    ``enabled`` should be ``settings.GRAPH_RETRIEVAL_ENABLED``. When false,
+    no Neo4j driver is constructed and no credentials are required — the
+    master flag (graphrag.config.settings.Settings.GRAPH_RETRIEVAL_ENABLED)
+    is the single source of truth for whether Neo4j is used at all. When
+    true later, ``Neo4jRetriever()`` is callable exactly as before — no
+    architecture change needed to re-enable it.
+    """
+    if not enabled:
+        logger.info("GRAPH_RETRIEVAL_ENABLED=false — Neo4j not connected (NullNeo4jRetriever).")
+        return NullNeo4jRetriever()
+    return Neo4jRetriever()
+
+
+__all__ = ["Neo4jRetriever", "NullNeo4jRetriever", "build_neo4j_retriever"]

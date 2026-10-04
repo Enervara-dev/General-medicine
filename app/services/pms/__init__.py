@@ -49,6 +49,7 @@ from app.services.pms.events import (
     SourceChannel,
     SourceRef,
 )
+from app.services.pms.producer import SPECIALTY_SERVICE as SPECIALTY_SERVICE_DEFAULT
 from app.services.pms.producer import ClinicalMemoryProducer
 from app.services.pms.signing import SigningError, SigV4RequestSigner
 
@@ -71,6 +72,7 @@ __all__ = [
     "NullPMSClient",
     "PMSClient",
     "PmsMemoryEventV1",
+    "SPECIALTY_SERVICE_DEFAULT",
     "SigV4RequestSigner",
     "SigningError",
     "SourceChannel",
