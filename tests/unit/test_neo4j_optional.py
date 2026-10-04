@@ -65,6 +65,27 @@ def test_validate_required_does_not_need_neo4j_password_when_disabled():
     s.validate_required("api")  # must not raise
 
 
+def test_validate_required_does_not_need_neo4j_password_for_string_env_false():
+    """
+    Regression guard for a real-world scenario a bare Python ``False`` can't
+    exercise: ECS (and every other container platform) always hands env vars
+    to the process as STRINGS, never native booleans. If pydantic-settings
+    ever stopped coercing the string ``"false"`` to ``False`` for
+    ``GRAPH_RETRIEVAL_ENABLED``, this exact call shape — ``_env_file=None``,
+    every value a string, as a real container passes them — would be the
+    first thing to silently start demanding NEO4J_PASSWORD again.
+    """
+    s = Settings(
+        _env_file=None,
+        PINECONE_API_KEY="x",
+        GEMINI_API_KEY="y",
+        NEO4J_PASSWORD=None,
+        GRAPH_RETRIEVAL_ENABLED="false",
+    )
+    assert s.GRAPH_RETRIEVAL_ENABLED is False
+    s.validate_required("api")  # must not raise
+
+
 # ---------------------------------------------------------------------------
 # Enabled mode (mocked — no real Neo4j required)
 # ---------------------------------------------------------------------------
