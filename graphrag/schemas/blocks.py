@@ -147,6 +147,25 @@ class LabTestsData(BaseModel):
     tests: list[LabTest] = Field(min_length=1)
 
 
+class SuggestedSpecialtyData(BaseModel):
+    """
+    A candidate redirect to a better-fitting specialty, synthesised SERVER-SIDE
+    from the gatekeeper's own JSON analysis (``analysis["suggested_specialty"]``)
+    -- never emitted by the answer-generation model itself. The answer model's
+    OUTPUT CONTRACT (below) does not mention this block for exactly that reason:
+    it is injected by the pipeline after validating the gatekeeper's raw claim
+    (slug is a real, OTHER specialty; confidence is in range and meets the
+    product threshold), so a hallucinated slug or an inflated confidence can
+    never reach the client as-is.
+    """
+
+    model_config = _STRICT
+    slug: str = Field(min_length=1)
+    confidence: float = Field(ge=0.0, le=1.0)
+    reason_code: str = ""
+    display_message: str = ""
+
+
 class AnswerStateData(BaseModel):
     model_config = _STRICT
     # True once the consultation has reached a concluded answer — the client
@@ -224,6 +243,12 @@ class LabTestsBlock(BaseModel):
     data: LabTestsData
 
 
+class SuggestedSpecialtyBlock(BaseModel):
+    model_config = _STRICT
+    type: Literal["suggested_specialty"]
+    data: SuggestedSpecialtyData
+
+
 class AnswerStateBlock(BaseModel):
     model_config = _STRICT
     type: Literal["answer_state"]
@@ -245,6 +270,7 @@ Block = Annotated[
         OtcMedicationsBlock,
         LabTestsBlock,
         AnswerStateBlock,
+        SuggestedSpecialtyBlock,
     ],
     Field(discriminator="type"),
 ]
@@ -267,12 +293,13 @@ BLOCK_TYPES: tuple[str, ...] = (
     "otc_medications",
     "lab_tests",
     "answer_state",
+    "suggested_specialty",
 )
 
 # Control blocks the SERVER injects but the model must never emit. They are
 # excluded from the model-facing OUTPUT CONTRACT (so the model doesn't imitate
 # them) and dropped by the validator if the model produces one anyway.
-CONTROL_BLOCK_TYPES: frozenset[str] = frozenset({"answer_state"})
+CONTROL_BLOCK_TYPES: frozenset[str] = frozenset({"answer_state", "suggested_specialty"})
 
 # The block types the model is actually allowed to produce — everything except
 # server-only control blocks. This is what the OUTPUT CONTRACT advertises.
@@ -313,6 +340,7 @@ __all__ = [
     "LabTestsData",
     "LabTestUrgency",
     "AnswerStateData",
+    "SuggestedSpecialtyData",
     # envelopes
     "SummaryBlock",
     "KeyPointsBlock",
@@ -326,4 +354,5 @@ __all__ = [
     "OtcMedicationsBlock",
     "LabTestsBlock",
     "AnswerStateBlock",
+    "SuggestedSpecialtyBlock",
 ]

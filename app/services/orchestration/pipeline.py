@@ -60,6 +60,7 @@ class ChatResult:
     routing: dict[str, Any] = field(default_factory=dict)
     followup_questions: list[str] = field(default_factory=list)
     show_doctor_summary: bool = False
+    suggested_specialty: "SuggestedSpecialtyData | None" = None
 
 
 class AsyncOrchestrator:
@@ -319,6 +320,9 @@ class AsyncOrchestrator:
             },
             followup_questions=followup_questions,
             show_doctor_summary=session.doctor_summary_ready,
+            suggested_specialty=_extract_suggested_specialty(
+                analysis, current_specialty=specialty_config.key
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -547,8 +551,13 @@ class AsyncOrchestrator:
                     user_id=user_id,
                 )
 
+            suggested = _extract_suggested_specialty(analysis, current_specialty=specialty_config.key)
             timing["total"] = int((time.monotonic() - t0) * 1000)
-            yield {"type": "done", "timing_ms": timing}
+            yield {
+                "type": "done",
+                "timing_ms": timing,
+                "suggested_specialty": suggested.model_dump() if suggested else None,
+            }
 
         except Exception as exc:
             logger.exception("Streaming pipeline failed: %s", exc)
@@ -740,6 +749,13 @@ class AsyncOrchestrator:
             if terminal or consolidate:
                 session.doctor_summary_ready = True
             yield _answer_state_block(session.doctor_summary_ready)
+            suggested = _extract_suggested_specialty(analysis, current_specialty=specialty_config.key)
+            if suggested is not None:
+                from graphrag.schemas.blocks import SuggestedSpecialtyBlock
+
+                # NOT appended to `emitted`: control state, never conversation
+                # content, and never persisted into memory below.
+                yield SuggestedSpecialtyBlock(type="suggested_specialty", data=suggested)
 
             if user_id and self._c.episodic is not None:
                 asyncio.create_task(self._ingest_episodic_safe(identity=identity, utterance=query))
@@ -989,6 +1005,84 @@ def _authoritative_demographic_fields(demo) -> frozenset[str]:
     if getattr(demo, "sex", None):
         fields.add("sex")
     return frozenset(fields)
+
+
+# Confidence floor below which a suggestion is never surfaced to the patient.
+# A low-confidence or borderline guess is worse than none: it reads as the
+# assistant being unsure of its own specialty, which erodes trust faster than
+# just answering the question. Kept as a module constant (not buried inline)
+# so product can retune it without hunting through the extraction logic.
+SUGGESTED_SPECIALTY_MIN_CONFIDENCE: float = 0.85
+
+
+def _extract_suggested_specialty(
+    analysis: dict[str, Any] | None, *, current_specialty: str
+) -> "SuggestedSpecialtyData | None":
+    """
+    Validate the gatekeeper's raw ``suggested_specialty`` claim and return a
+    typed, trustworthy value — or ``None`` if there is nothing worth showing.
+
+    The gatekeeper prompt (per specialty, see app/specialty/content/) may emit
+    an OPTIONAL ``suggested_specialty`` object alongside its usual JSON
+    analysis when the query looks like it belongs to a different specialty.
+    That raw claim is UNTRUSTED model output and is never forwarded as-is:
+    this function is the one place that decides whether it is fit to reach a
+    client, by checking every field the product contract requires:
+
+        * slug must be a real, OTHER specialty (never the specialty that is
+          already answering — redirecting a patient to the specialty they are
+          already in is meaningless and signals a confused gatekeeper).
+        * confidence must be a real number in [0, 1], and must clear
+          SUGGESTED_SPECIALTY_MIN_CONFIDENCE — the threshold lives here, not
+          in the prompt, so it can be retuned without touching any specialty's
+          clinical prompt text.
+        * reason_code / display_message are optional free text, truncated to
+          a sane length so a verbose model can't balloon the payload.
+
+    Any structural problem — missing key, wrong type, out-of-range value,
+    `analysis` itself being None/empty/an error dict — yields None rather than
+    raising. A malformed suggestion must degrade to "no suggestion", exactly
+    like every other optional signal on this path (followups, demographics).
+    """
+    if not analysis or "error" in analysis:
+        return None
+    raw = analysis.get("suggested_specialty")
+    if not isinstance(raw, dict):
+        return None
+
+    slug = raw.get("slug")
+    if not isinstance(slug, str) or not slug.strip():
+        return None
+    slug = slug.strip().lower().replace("-", "_")
+
+    from app.specialty.registry import SPECIALTY_KEYS
+
+    if slug not in SPECIALTY_KEYS or slug == current_specialty:
+        return None
+
+    confidence = raw.get("confidence")
+    if isinstance(confidence, bool) or not isinstance(confidence, (int, float)):
+        return None
+    confidence = float(confidence)
+    if not (0.0 <= confidence <= 1.0) or confidence < SUGGESTED_SPECIALTY_MIN_CONFIDENCE:
+        return None
+
+    reason_code = raw.get("reason_code")
+    reason_code = reason_code.strip()[:60] if isinstance(reason_code, str) else ""
+    display_message = raw.get("display_message")
+    display_message = display_message.strip()[:200] if isinstance(display_message, str) else ""
+
+    from graphrag.schemas.blocks import SuggestedSpecialtyData
+
+    try:
+        return SuggestedSpecialtyData(
+            slug=slug,
+            confidence=confidence,
+            reason_code=reason_code,
+            display_message=display_message,
+        )
+    except Exception:  # noqa: BLE001 - never break the turn over an optional signal
+        return None
 
 
 def _answer_state_block(show_doctor_summary: bool) -> Block:

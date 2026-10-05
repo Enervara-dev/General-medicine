@@ -119,6 +119,7 @@ async def chat(req: ChatRequest, request: Request, ctx: ContainerDep) -> ChatRes
         routing=result.routing,
         followup_questions=result.followup_questions,
         show_doctor_summary=result.show_doctor_summary,
+        suggested_specialty=result.suggested_specialty,
     )
 
 

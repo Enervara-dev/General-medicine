@@ -7,6 +7,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from graphrag.schemas.blocks import SuggestedSpecialtyData
+
 
 class DemographicsEnvelope(BaseModel):
     """
@@ -199,6 +201,10 @@ class ChatResponse(BaseModel):
     # True once the consultation has reached a concluded answer — the client may
     # then offer "Show this to your doctor" (the SOAP note at POST /chat/soap).
     show_doctor_summary: bool = False
+    # Optional. Present only when the gatekeeper's own cross-specialty claim
+    # passed server-side validation (real OTHER specialty, confidence >= 0.85).
+    # See AsyncOrchestrator._extract_suggested_specialty for the validation.
+    suggested_specialty: SuggestedSpecialtyData | None = None
 
 
 class ChatStreamEvent(BaseModel):
