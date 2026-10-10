@@ -61,6 +61,7 @@ class ChatResult:
     followup_questions: list[str] = field(default_factory=list)
     show_doctor_summary: bool = False
     suggested_specialty: "SuggestedSpecialtyData | None" = None
+    complaint_label: str | None = None
 
 
 class AsyncOrchestrator:
@@ -273,7 +274,7 @@ class AsyncOrchestrator:
 
         if followup_questions and answer:
             followup_block = (
-                "\n\n---\n💬 **To help me give you a more precise answer next time, "
+                "\n\n---\n**To help me give you a more precise answer next time, "
                 "could you also share:**\n"
                 + "\n".join(f"- {q}" for q in followup_questions)
             )
@@ -321,8 +322,11 @@ class AsyncOrchestrator:
             followup_questions=followup_questions,
             show_doctor_summary=session.doctor_summary_ready,
             suggested_specialty=_extract_suggested_specialty(
-                analysis, current_specialty=specialty_config.key
+                analysis,
+                current_specialty=specialty_config.key,
+                relevance_threshold=specialty_config.relevance_threshold,
             ),
+            complaint_label=derive_complaint_label(analysis),
         )
 
     # ------------------------------------------------------------------
@@ -510,12 +514,17 @@ class AsyncOrchestrator:
 
             llm_t0 = time.monotonic()
             answer_chunks: list[str] = []
+            from graphrag.text.sanitize import strip_emojis
+
             async for piece in stream_gemini_tokens(
                 model=cfg.ANSWER_MODEL or DEFAULT_MODEL,
                 system_instruction=system_prompt,
                 user_prompt=user_prompt,
                 temperature=0.2,
             ):
+                # Same backstop as _answer_async, applied per streamed token so
+                # the live SSE text is clean too, not just the persisted copy.
+                piece = strip_emojis(piece) or ""
                 answer_chunks.append(piece)
                 yield {"type": "chunk", "data": piece}
             timing["llm"] = int((time.monotonic() - llm_t0) * 1000)
@@ -523,7 +532,7 @@ class AsyncOrchestrator:
             answer = "".join(answer_chunks)
             if followup_questions and answer:
                 followup_block = (
-                    "\n\n---\n💬 **To help me give you a more precise answer next time, "
+                    "\n\n---\n**To help me give you a more precise answer next time, "
                     "could you also share:**\n"
                     + "\n".join(f"- {q}" for q in followup_questions)
                 )
@@ -551,12 +560,17 @@ class AsyncOrchestrator:
                     user_id=user_id,
                 )
 
-            suggested = _extract_suggested_specialty(analysis, current_specialty=specialty_config.key)
+            suggested = _extract_suggested_specialty(
+                analysis,
+                current_specialty=specialty_config.key,
+                relevance_threshold=specialty_config.relevance_threshold,
+            )
             timing["total"] = int((time.monotonic() - t0) * 1000)
             yield {
                 "type": "done",
                 "timing_ms": timing,
                 "suggested_specialty": suggested.model_dump() if suggested else None,
+                "complaint_label": derive_complaint_label(analysis),
             }
 
         except Exception as exc:
@@ -738,7 +752,14 @@ class AsyncOrchestrator:
                 user_prompt=user_prompt,
                 temperature=0.2,
             )
+            from graphrag.text.sanitize import sanitize_value
+
             async for block in aiter_blocks(token_stream, terminal=terminal or consolidate):
+                # Same deterministic backstop as the prose paths, generalised
+                # over a block's data shape (str / list / nested model) so a
+                # new block type needs no new sanitizer code. See
+                # graphrag/text/sanitize.py:sanitize_value.
+                block = block.model_copy(update={"data": sanitize_value(block.data)})
                 emitted.append(block)
                 yield block
 
@@ -749,7 +770,18 @@ class AsyncOrchestrator:
             if terminal or consolidate:
                 session.doctor_summary_ready = True
             yield _answer_state_block(session.doctor_summary_ready)
-            suggested = _extract_suggested_specialty(analysis, current_specialty=specialty_config.key)
+            suggested = _extract_suggested_specialty(
+                analysis,
+                current_specialty=specialty_config.key,
+                relevance_threshold=specialty_config.relevance_threshold,
+            )
+            label = derive_complaint_label(analysis)
+            if label is not None:
+                from graphrag.schemas.blocks import ComplaintLabelBlock, ComplaintLabelData
+
+                # Same control-block treatment as answer_state/suggested_specialty:
+                # never appended to `emitted`, so it is not persisted as a message.
+                yield ComplaintLabelBlock(type="complaint_label", data=ComplaintLabelData(label=label))
             if suggested is not None:
                 from graphrag.schemas.blocks import SuggestedSpecialtyBlock
 
@@ -835,14 +867,21 @@ class AsyncOrchestrator:
         )
         # Vision-capable model when an image is attached; text model otherwise.
         model = (cfg.VISION_MODEL if media else cfg.ANSWER_MODEL) or DEFAULT_MODEL
+        from graphrag.text.sanitize import strip_emojis
+
         try:
-            return await generate_text_async(
+            text = await generate_text_async(
                 user_prompt,
                 model=model,
                 system_instruction=system_prompt,
                 temperature=0.2,
                 media=media or None,
             )
+            # Deterministic backstop: the prompt (layer_safety_policy) already
+            # tells the model never to use emojis, but a prompt instruction is
+            # not a guarantee, and this is the one place every /chat /
+            # /chat/stream answer is produced. See graphrag/text/sanitize.py.
+            return strip_emojis(text) or ""
         except Exception as exc:
             logger.exception("LLM answer failed: %s", exc)
             return ""
@@ -1014,9 +1053,88 @@ def _authoritative_demographic_fields(demo) -> frozenset[str]:
 # so product can retune it without hunting through the extraction logic.
 SUGGESTED_SPECIALTY_MIN_CONFIDENCE: float = 0.85
 
+# Cap on how many extracted items compose a label ("Cough & Fever" = 2) and on
+# the rendered length, so a verbose extraction still yields a short label
+# rather than a wall of text Care Journey / Health Timeline weren't built to
+# show.
+_COMPLAINT_LABEL_MAX_ITEMS: int = 2
+_COMPLAINT_LABEL_MAX_CHARS: int = 60
+
+
+def _title_case_phrase(phrase: str) -> str:
+    """Title-cases a noun phrase without mangling things that shouldn't be
+    capitalised word-by-word in a naive way (kept simple on purpose: the
+    gatekeeper already extracts short, clean noun phrases, not sentences)."""
+    return " ".join(w.capitalize() for w in phrase.split())
+
+
+def derive_complaint_label(analysis: dict[str, Any] | None) -> str | None:
+    """
+    Derive a short, standardised complaint label ("Fever", "Cough & Fever",
+    "Knee Pain") from the gatekeeper's own grounded entity extraction — never
+    a new generative call, and never anything the patient did not state.
+
+    Why this is safe to call "never invented": the gatekeeper prompt's own
+    ENTITY EXTRACTION section already instructs "Extract ONLY what the
+    message states; never invent" for `medical_entities.symptoms` /
+    `conditions` (see analyzer.py). This function only FORMATS that already-
+    extracted, already-grounded list — composing a label cannot introduce a
+    symptom or diagnosis the patient never reported, because it has no
+    access to anything beyond what extraction already captured.
+
+    One label per CALL, not per conversation — the caller (Core, via the
+    chat response) is responsible for writing it only on the turn that
+    establishes a conversation's complaint and leaving it alone afterwards,
+    the same way the conversation's title is set once and never overwritten.
+
+    Symptoms are preferred over conditions (a presenting complaint, e.g.
+    "fever", is what the patient is HERE for; a condition, e.g. "asthma", is
+    background history mentioned in passing and a weaker signal of why this
+    conversation started). Returns None — never an empty string — when there
+    is nothing grounded to build a label from, so the caller's own fallback
+    (the conversation's existing title) still applies.
+    """
+    if not isinstance(analysis, dict) or not analysis or "error" in analysis:
+        return None
+    entities = analysis.get("medical_entities")
+    if not isinstance(entities, dict):
+        return None
+
+    symptoms = entities.get("symptoms")
+    conditions = entities.get("conditions")
+    candidates = symptoms if isinstance(symptoms, list) and symptoms else conditions
+    if not isinstance(candidates, list):
+        return None
+
+    # A genuine "concise noun phrase" (what the extraction prompt asks for)
+    # is short: "fever", "sore throat", "knee pain". If the gatekeeper ever
+    # misbehaves and a whole sentence lands in `symptoms` instead, that is
+    # not a usable label candidate — degrading to None (the caller's own
+    # title-based fallback) beats truncating a sentence mid-word into
+    # something that reads as broken rather than standardised.
+    phrases = [
+        c.strip() for c in candidates
+        if isinstance(c, str) and c.strip()
+        and len(c.strip()) <= 30 and len(c.strip().split()) <= 4
+    ]
+    if not phrases:
+        return None
+
+    label = " & ".join(_title_case_phrase(p) for p in phrases[:_COMPLAINT_LABEL_MAX_ITEMS])
+    if len(label) > _COMPLAINT_LABEL_MAX_CHARS:
+        # Two short phrases can still combine past the cap; fall back to the
+        # single highest-signal item rather than a cut-off joined string.
+        label = _title_case_phrase(phrases[0])
+    return label or None
+
+
+
 
 def _extract_suggested_specialty(
-    analysis: dict[str, Any] | None, *, current_specialty: str
+    analysis: dict[str, Any] | None,
+    *,
+    current_specialty: str,
+    relevance_threshold: int = 0,
 ) -> "SuggestedSpecialtyData | None":
     """
     Validate the gatekeeper's raw ``suggested_specialty`` claim and return a
@@ -1036,6 +1154,20 @@ def _extract_suggested_specialty(
           SUGGESTED_SPECIALTY_MIN_CONFIDENCE — the threshold lives here, not
           in the prompt, so it can be retuned without touching any specialty's
           clinical prompt text.
+        * the gatekeeper's OWN stated relevance score for the CURRENT
+          specialty (``analysis[f"{current_specialty}_relevance"]``) must
+          actually be below ``relevance_threshold``. This is the fix for
+          "inconsistent / premature" redirects: every specialty's prompt
+          asks the model to self-report "only suggest when YOUR OWN
+          relevance is low", but that was previously enforced by prompt
+          wording alone — nothing stopped a model from setting a high
+          confidence suggested_specialty on a turn it ALSO scored as highly
+          relevant to its own specialty, an internally contradictory claim.
+          Enforcing the cross-check here, in code, makes the gate consistent
+          across every specialty regardless of how any one prompt is worded,
+          and FAILS CLOSED (rejects the suggestion) when the own-relevance
+          score is missing or unreadable — an unverifiable claim is treated
+          as an unjustified one, never as a free pass.
         * reason_code / display_message are optional free text, truncated to
           a sane length so a verbose model can't balloon the payload.
 
@@ -1058,6 +1190,17 @@ def _extract_suggested_specialty(
     from app.specialty.registry import SPECIALTY_KEYS
 
     if slug not in SPECIALTY_KEYS or slug == current_specialty:
+        return None
+
+    # Deterministic cross-check: the gatekeeper's own relevance score for
+    # ITS OWN specialty must actually be below threshold. A model claiming
+    # both "I am highly relevant" and "redirect elsewhere" in the same turn
+    # is self-contradictory, and that contradiction is exactly what made
+    # redirects feel premature/inconsistent before this check existed.
+    own_relevance = analysis.get(f"{current_specialty}_relevance")
+    if isinstance(own_relevance, bool) or not isinstance(own_relevance, (int, float)):
+        return None
+    if float(own_relevance) >= relevance_threshold:
         return None
 
     confidence = raw.get("confidence")
@@ -1113,7 +1256,7 @@ def _canned_message(final_action: str) -> str:
             "you trust and stay with them. Asking for help is a strong first step."
         )
     return (
-        "🚨 Medical Emergency: Your symptoms may indicate a serious or "
+        "**Medical Emergency:** Your symptoms may indicate a serious or "
         "life-threatening condition. Please call 112 immediately or go to the "
         "nearest emergency room or hospital as soon as possible."
     )

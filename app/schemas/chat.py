@@ -205,6 +205,11 @@ class ChatResponse(BaseModel):
     # passed server-side validation (real OTHER specialty, confidence >= 0.85).
     # See AsyncOrchestrator._extract_suggested_specialty for the validation.
     suggested_specialty: SuggestedSpecialtyData | None = None
+    # Short, standardised complaint label ('Fever', 'Cough & Fever') for
+    # Core's Care Journey rail / Health Timeline. Present only when the
+    # gatekeeper's extraction yielded something to build one from; absent
+    # otherwise, so the caller falls back to its own conversation title.
+    complaint_label: str | None = None
 
 
 class ChatStreamEvent(BaseModel):

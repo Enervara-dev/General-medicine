@@ -140,6 +140,7 @@ def parse_soap(raw: str | None) -> dict[str, Any]:
 async def generate_soap_async(session: SessionMemory, *, model: str) -> dict[str, Any]:
     """Generate SOAP sections for a session using the async Gemini client."""
     from graphrag.llm.gemini_client import generate_text_async
+    from graphrag.text.sanitize import sanitize_value
 
     context = build_soap_context(session)
     raw = await generate_text_async(
@@ -149,12 +150,15 @@ async def generate_soap_async(session: SessionMemory, *, model: str) -> dict[str
         temperature=0,
         json_mode=True,
     )
-    return parse_soap(raw)
+    # Same deterministic backstop as the chat response paths: a doctor-facing
+    # note must never carry a decorative emoji. See graphrag/text/sanitize.py.
+    return sanitize_value(parse_soap(raw))
 
 
 def generate_soap_sync(session: SessionMemory, *, model: str) -> dict[str, Any]:
     """Generate SOAP sections for a session using the sync Gemini client (CLI)."""
     from graphrag.llm.gemini_client import generate_text
+    from graphrag.text.sanitize import sanitize_value
 
     context = build_soap_context(session)
     raw = generate_text(
@@ -164,4 +168,4 @@ def generate_soap_sync(session: SessionMemory, *, model: str) -> dict[str, Any]:
         temperature=0,
         json_mode=True,
     )
-    return parse_soap(raw)
+    return sanitize_value(parse_soap(raw))

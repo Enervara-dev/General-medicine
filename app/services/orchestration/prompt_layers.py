@@ -32,11 +32,11 @@ from __future__ import annotations
 # empty so the prompt doesn't carry irrelevant warnings.
 _RISK_TONE: dict[str, str] = {
     "critical": (
-        "⚠️ CRITICAL RISK — if signs are genuinely life-threatening "
+        "CRITICAL RISK — if signs are genuinely life-threatening "
         "(see safety section), SKIP the interview flow and escalate first."
     ),
     "high": (
-        "⚠️ Elevated risk — be explicit about red flags and when to seek "
+        "Elevated risk — be explicit about red flags and when to seek "
         "care; don't hedge urgency."
     ),
     "medium": "Note: moderate risk signals — be thorough and safety-aware.",
@@ -137,7 +137,8 @@ def layer_safety_policy() -> str:
         "warrant it; when you do, the phrase \"only a doctor can "
         "properly examine and confirm this\" may be used, but always "
         "paired with a SPECIFIC trigger and TIMEFRAME — never as a "
-        "mechanical bolt-on."
+        "mechanical bolt-on.\n"
+        "- NEVER use emojis or emoticons; use wording/markdown emphasis only."
     )
 
 
@@ -618,13 +619,14 @@ def layer_block_plan(
         return (
             "BLOCK PLAN — INFORMATION-GATHERING turn. You do NOT yet have enough "
             "to consolidate, and it is NOT time for a summary. Emit ONLY:\n"
-            "- follow_up_questions: exactly ONE warm, high-information-gain "
-            "question, carrying its clinical reasoning in one clause.\n"
+            f"{_FOLLOWUP_LINE}"
             "- warning: ONLY if a red flag is already present (with a severity); "
             "otherwise omit it.\n"
             "Do NOT emit a summary, condition_list, key_points, or next_steps this "
             "turn — no 'Summary:' after every answer. Just ask the one question "
-            "that moves the picture forward; you will consolidate later."
+            "that moves the picture forward (via follow_up_questions, or a "
+            "clickable question block when the answer is a small known set); "
+            "you will consolidate later."
         )
 
     plan = _INTENT_BLOCK_PLANS.get(classified, _DEFAULT_BLOCK_PLAN).format(

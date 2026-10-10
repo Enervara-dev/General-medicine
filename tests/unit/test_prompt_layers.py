@@ -117,7 +117,11 @@ def test_runtime_personalisation_no_name():
 
 def test_runtime_risk_critical_surfaces_warning():
     out = layer_runtime_modifiers(risk_level="critical", has_name=False)
-    assert "⚠️ CRITICAL" in out
+    assert "CRITICAL" in out
+    # The warning-sign glyph is intentionally gone now: emojis are banned
+    # fleet-wide (see layer_safety_policy) and this is NO LONGER how
+    # critical risk is surfaced -- wording alone carries the urgency.
+    assert "⚠️" not in out
     # Critical block tells the LLM to skip the interview and escalate.
     assert "SKIP the interview" in out or "skip the interview" in out.lower()
     # Personalisation block still follows the risk header.
@@ -501,7 +505,8 @@ def test_compose_joins_all_layers_for_substantive_with_name_critical():
     # Markers from every non-empty layer must appear in the composed prompt.
     assert "experienced physician practising general" in out       # L1
     assert "SAFETY & EVIDENCE" in out                              # L2
-    assert "⚠️ CRITICAL" in out and "Hey Aarav" in out             # L3
+    assert "CRITICAL" in out and "Hey Aarav" in out                    # L3
+    assert "⚠️" not in out  # emojis are banned fleet-wide
     assert "MEMORY & CONTEXT REUSE" in out                         # L4
     assert "CLINICAL KNOWLEDGE GROUNDING" in out                   # L5
     assert "CONSULTATION FLOW" in out                              # L6

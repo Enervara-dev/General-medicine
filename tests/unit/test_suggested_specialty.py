@@ -31,9 +31,16 @@ VALID = {
     }
 }
 
+# A low ENT relevance score, below the 75-point threshold these tests use for
+# `current_specialty="ent"` -- see test_emoji_and_redirect_consistency.py for
+# the dedicated tests pinning the own-relevance cross-check itself. Present so
+# tests in THIS file that are about slug/confidence/shape validation aren't
+# incidentally exercising (or defeated by) that separate, later-added gate.
+QUALIFYING_RELEVANCE = {"ent_relevance": 20}
+
 
 def _analysis(**over):
-    base = {"intent": "symptom_query", **VALID}
+    base = {"intent": "symptom_query", **QUALIFYING_RELEVANCE, **VALID}
     base.update(over)
     return base
 
@@ -43,7 +50,7 @@ def _analysis(**over):
 # ---------------------------------------------------------------------------
 
 def test_valid_suggestion_from_a_different_specialty_is_accepted():
-    out = _extract_suggested_specialty(_analysis(), current_specialty="ent")
+    out = _extract_suggested_specialty(_analysis(), current_specialty="ent", relevance_threshold=75)
     assert out is not None
     assert out.slug == "dermatology"
     assert out.confidence == 0.92
@@ -53,13 +60,13 @@ def test_valid_suggestion_from_a_different_specialty_is_accepted():
 
 def test_slug_is_normalised():
     raw = _analysis(suggested_specialty={**VALID["suggested_specialty"], "slug": "  Dermatology "})
-    out = _extract_suggested_specialty(raw, current_specialty="ent")
+    out = _extract_suggested_specialty(raw, current_specialty="ent", relevance_threshold=75)
     assert out.slug == "dermatology"
 
 
 def test_confidence_exactly_at_threshold_is_accepted():
     raw = _analysis(suggested_specialty={**VALID["suggested_specialty"], "confidence": SUGGESTED_SPECIALTY_MIN_CONFIDENCE})
-    assert _extract_suggested_specialty(raw, current_specialty="ent") is not None
+    assert _extract_suggested_specialty(raw, current_specialty="ent", relevance_threshold=75) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -67,56 +74,56 @@ def test_confidence_exactly_at_threshold_is_accepted():
 # ---------------------------------------------------------------------------
 
 def test_none_analysis_yields_none():
-    assert _extract_suggested_specialty(None, current_specialty="ent") is None
+    assert _extract_suggested_specialty(None, current_specialty="ent", relevance_threshold=75) is None
 
 
 def test_empty_analysis_yields_none():
-    assert _extract_suggested_specialty({}, current_specialty="ent") is None
+    assert _extract_suggested_specialty({}, current_specialty="ent", relevance_threshold=75) is None
 
 
 def test_error_analysis_yields_none():
-    assert _extract_suggested_specialty({"error": "x", **VALID}, current_specialty="ent") is None
+    assert _extract_suggested_specialty({"error": "x", **VALID}, current_specialty="ent", relevance_threshold=75) is None
 
 
 def test_missing_key_yields_none():
-    assert _extract_suggested_specialty({"intent": "symptom_query"}, current_specialty="ent") is None
+    assert _extract_suggested_specialty({"intent": "symptom_query"}, current_specialty="ent", relevance_threshold=75) is None
 
 
 def test_non_dict_value_yields_none():
     for bad in ("dermatology", 123, None, ["dermatology"]):
-        assert _extract_suggested_specialty({"suggested_specialty": bad}, current_specialty="ent") is None
+        assert _extract_suggested_specialty({"suggested_specialty": bad}, current_specialty="ent", relevance_threshold=75) is None
 
 
 def test_self_suggestion_is_rejected():
     """Suggesting the specialty that is already answering is meaningless."""
-    out = _extract_suggested_specialty(_analysis(), current_specialty="dermatology")
+    out = _extract_suggested_specialty(_analysis(), current_specialty="dermatology", relevance_threshold=75)
     assert out is None
 
 
 def test_unknown_specialty_slug_is_rejected():
     raw = _analysis(suggested_specialty={**VALID["suggested_specialty"], "slug": "neurology"})
-    assert _extract_suggested_specialty(raw, current_specialty="ent") is None
+    assert _extract_suggested_specialty(raw, current_specialty="ent", relevance_threshold=75) is None
 
 
 def test_empty_slug_is_rejected():
     raw = _analysis(suggested_specialty={**VALID["suggested_specialty"], "slug": "  "})
-    assert _extract_suggested_specialty(raw, current_specialty="ent") is None
+    assert _extract_suggested_specialty(raw, current_specialty="ent", relevance_threshold=75) is None
 
 
 @pytest.mark.parametrize("bad_confidence", [0.84, 0.0, -0.1, 1.5, "0.9", True, None])
 def test_low_or_invalid_confidence_is_rejected(bad_confidence):
     raw = _analysis(suggested_specialty={**VALID["suggested_specialty"], "confidence": bad_confidence})
-    assert _extract_suggested_specialty(raw, current_specialty="ent") is None
+    assert _extract_suggested_specialty(raw, current_specialty="ent", relevance_threshold=75) is None
 
 
 def test_missing_confidence_is_rejected():
     raw = _analysis(suggested_specialty={"slug": "dermatology"})
-    assert _extract_suggested_specialty(raw, current_specialty="ent") is None
+    assert _extract_suggested_specialty(raw, current_specialty="ent", relevance_threshold=75) is None
 
 
 def test_reason_code_and_message_are_optional():
     raw = _analysis(suggested_specialty={"slug": "dermatology", "confidence": 0.9})
-    out = _extract_suggested_specialty(raw, current_specialty="ent")
+    out = _extract_suggested_specialty(raw, current_specialty="ent", relevance_threshold=75)
     assert out is not None
     assert out.reason_code == ""
     assert out.display_message == ""
@@ -127,7 +134,7 @@ def test_overlong_message_is_truncated_not_rejected():
         "slug": "dermatology", "confidence": 0.9,
         "reason_code": "x" * 500, "display_message": "y" * 500,
     })
-    out = _extract_suggested_specialty(raw, current_specialty="ent")
+    out = _extract_suggested_specialty(raw, current_specialty="ent", relevance_threshold=75)
     assert out is not None
     assert len(out.reason_code) <= 60
     assert len(out.display_message) <= 200
@@ -136,7 +143,7 @@ def test_overlong_message_is_truncated_not_rejected():
 def test_malformed_field_types_degrade_to_none_not_raise():
     raw = _analysis(suggested_specialty={"slug": "dermatology", "confidence": 0.9,
                                           "reason_code": 12345, "display_message": {"x": 1}})
-    out = _extract_suggested_specialty(raw, current_specialty="ent")
+    out = _extract_suggested_specialty(raw, current_specialty="ent", relevance_threshold=75)
     # Non-string optional fields fall back to "" rather than raising.
     assert out is not None
     assert out.reason_code == "" and out.display_message == ""
