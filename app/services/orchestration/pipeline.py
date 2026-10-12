@@ -325,6 +325,7 @@ class AsyncOrchestrator:
                 analysis,
                 current_specialty=specialty_config.key,
                 relevance_threshold=specialty_config.relevance_threshold,
+                total_messages=elapsed,
             ),
             complaint_label=derive_complaint_label(analysis),
         )
@@ -564,6 +565,7 @@ class AsyncOrchestrator:
                 analysis,
                 current_specialty=specialty_config.key,
                 relevance_threshold=specialty_config.relevance_threshold,
+                total_messages=session.total_messages,
             )
             timing["total"] = int((time.monotonic() - t0) * 1000)
             yield {
@@ -774,6 +776,7 @@ class AsyncOrchestrator:
                 analysis,
                 current_specialty=specialty_config.key,
                 relevance_threshold=specialty_config.relevance_threshold,
+                total_messages=elapsed,
             )
             label = derive_complaint_label(analysis)
             if label is not None:
@@ -1053,6 +1056,15 @@ def _authoritative_demographic_fields(demo) -> frozenset[str]:
 # so product can retune it without hunting through the extraction logic.
 SUGGESTED_SPECIALTY_MIN_CONFIDENCE: float = 0.85
 
+# A redirect suggested from the patient's very first message hasn't earned
+# it: there's barely enough information yet to judge "this isn't my
+# specialty" versus the gatekeeper just pattern-matching on a keyword.
+# Require at least one full prior exchange (one user + one assistant
+# message already saved) before a redirect can fire at all, so "do not
+# redirect before enough input" is enforced in code — identically across
+# every specialty — rather than left to prompt wording alone.
+SUGGESTED_SPECIALTY_MIN_TOTAL_MESSAGES: int = 2
+
 # Cap on how many extracted items compose a label ("Cough & Fever" = 2) and on
 # the rendered length, so a verbose extraction still yields a short label
 # rather than a wall of text Care Journey / Health Timeline weren't built to
@@ -1135,6 +1147,7 @@ def _extract_suggested_specialty(
     *,
     current_specialty: str,
     relevance_threshold: int = 0,
+    total_messages: int = 0,
 ) -> "SuggestedSpecialtyData | None":
     """
     Validate the gatekeeper's raw ``suggested_specialty`` claim and return a
@@ -1170,6 +1183,11 @@ def _extract_suggested_specialty(
           as an unjustified one, never as a free pass.
         * reason_code / display_message are optional free text, truncated to
           a sane length so a verbose model can't balloon the payload.
+        * ``total_messages`` (the session's running message count, same
+          counter ``_should_consolidate``'s turn-count backstop uses) must
+          be at least ``SUGGESTED_SPECIALTY_MIN_TOTAL_MESSAGES`` — never
+          redirect on the patient's opening message, before there has been
+          even one full prior exchange to judge relevance from.
 
     Any structural problem — missing key, wrong type, out-of-range value,
     `analysis` itself being None/empty/an error dict — yields None rather than
@@ -1177,6 +1195,8 @@ def _extract_suggested_specialty(
     like every other optional signal on this path (followups, demographics).
     """
     if not analysis or "error" in analysis:
+        return None
+    if total_messages < SUGGESTED_SPECIALTY_MIN_TOTAL_MESSAGES:
         return None
     raw = analysis.get("suggested_specialty")
     if not isinstance(raw, dict):

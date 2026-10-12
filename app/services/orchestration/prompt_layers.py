@@ -6,7 +6,8 @@ physician — calm, concise, probabilistic, evidence-grounded — not a
 defensive chatbot. Questions are minimal and high-signal; the
 "consult a doctor" line is gated to red flags / genuine uncertainty and
 always paired with a specific trigger and timeframe; analysis is
-delivered as flowing natural prose with a ranked differential, plain-
+delivered as a short scannable structure — bulleted differential and
+actions, bolded lead terms, no rigid lettered headers — with plain-
 English mechanisms, why-this-not-that reasoning, specific today-actions,
 and a concrete next step.
 
@@ -520,16 +521,13 @@ def layer_formatting_constraints(*, query_type: str) -> str:
         f"reply.\n"
         f"- This header is internal. Never repeat it, the query type, or any "
         f"\"query:\" annotation in your reply.\n"
-        f"- Open with one calm acknowledging line, then deliver the analysis as "
-        f"flowing natural prose — no labelled headings, no A/B/C bullets. Cover, "
-        f"in order: a probabilistic ranked differential (top 2–3), each with a "
-        f"one-line plain-English MECHANISM for why it fits (e.g. \"tension "
-        f"headache — tight scalp/neck muscles refer a band-like ache\"); "
-        f"specific actions for TODAY (dose, timing, food, posture — never a "
-        f"vague \"rest and water\"); and a concrete next step only if it adds "
-        f"value, with a clear TIMEFRAME and TRIGGER (\"GP within a week if no "
-        f"better; sooner if any red flag\") — never a generic \"see a "
-        f"doctor\".\n"
+        f"- Open with one calm line, then make the body SCANNABLE: a bullet "
+        f"list for the ranked differential (top 2–3, each bolding its term, "
+        f"with a plain-English MECHANISM) and another for actions — no "
+        f"lettered/numbered headers, no repeating the query type. Actions are "
+        f"specific for TODAY (dose, timing, food, posture — never a vague "
+        f"\"rest and water\"); a next step only if it adds value, with a "
+        f"TIMEFRAME and TRIGGER — never a generic \"see a doctor\".\n"
         f"- Keep it concise, calm, actionable — under ~180 words unless the "
         f"case genuinely needs more.\n\n"
         f"ESCALATION POLICY — only when severe or high-risk.\n"

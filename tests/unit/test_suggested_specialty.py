@@ -12,6 +12,7 @@ import pytest
 
 from app.services.orchestration.pipeline import (
     SUGGESTED_SPECIALTY_MIN_CONFIDENCE,
+    SUGGESTED_SPECIALTY_MIN_TOTAL_MESSAGES,
     _extract_suggested_specialty,
 )
 from graphrag.schemas.blocks import (
@@ -45,12 +46,21 @@ def _analysis(**over):
     return base
 
 
+def _extract(analysis, **kwargs):
+    """Most tests in this file are about slug/confidence/shape validation,
+    not the minimum-prior-exchange gate (pinned separately below) — so they
+    go through here, which supplies a qualifying `total_messages` by
+    default, exactly like QUALIFYING_RELEVANCE does for the relevance gate."""
+    kwargs.setdefault("total_messages", SUGGESTED_SPECIALTY_MIN_TOTAL_MESSAGES)
+    return _extract_suggested_specialty(analysis, **kwargs)
+
+
 # ---------------------------------------------------------------------------
 # Acceptance
 # ---------------------------------------------------------------------------
 
 def test_valid_suggestion_from_a_different_specialty_is_accepted():
-    out = _extract_suggested_specialty(_analysis(), current_specialty="ent", relevance_threshold=75)
+    out = _extract(_analysis(), current_specialty="ent", relevance_threshold=75)
     assert out is not None
     assert out.slug == "dermatology"
     assert out.confidence == 0.92
@@ -60,13 +70,13 @@ def test_valid_suggestion_from_a_different_specialty_is_accepted():
 
 def test_slug_is_normalised():
     raw = _analysis(suggested_specialty={**VALID["suggested_specialty"], "slug": "  Dermatology "})
-    out = _extract_suggested_specialty(raw, current_specialty="ent", relevance_threshold=75)
+    out = _extract(raw, current_specialty="ent", relevance_threshold=75)
     assert out.slug == "dermatology"
 
 
 def test_confidence_exactly_at_threshold_is_accepted():
     raw = _analysis(suggested_specialty={**VALID["suggested_specialty"], "confidence": SUGGESTED_SPECIALTY_MIN_CONFIDENCE})
-    assert _extract_suggested_specialty(raw, current_specialty="ent", relevance_threshold=75) is not None
+    assert _extract(raw, current_specialty="ent", relevance_threshold=75) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -123,7 +133,7 @@ def test_missing_confidence_is_rejected():
 
 def test_reason_code_and_message_are_optional():
     raw = _analysis(suggested_specialty={"slug": "dermatology", "confidence": 0.9})
-    out = _extract_suggested_specialty(raw, current_specialty="ent", relevance_threshold=75)
+    out = _extract(raw, current_specialty="ent", relevance_threshold=75)
     assert out is not None
     assert out.reason_code == ""
     assert out.display_message == ""
@@ -134,7 +144,7 @@ def test_overlong_message_is_truncated_not_rejected():
         "slug": "dermatology", "confidence": 0.9,
         "reason_code": "x" * 500, "display_message": "y" * 500,
     })
-    out = _extract_suggested_specialty(raw, current_specialty="ent", relevance_threshold=75)
+    out = _extract(raw, current_specialty="ent", relevance_threshold=75)
     assert out is not None
     assert len(out.reason_code) <= 60
     assert len(out.display_message) <= 200
@@ -143,10 +153,50 @@ def test_overlong_message_is_truncated_not_rejected():
 def test_malformed_field_types_degrade_to_none_not_raise():
     raw = _analysis(suggested_specialty={"slug": "dermatology", "confidence": 0.9,
                                           "reason_code": 12345, "display_message": {"x": 1}})
-    out = _extract_suggested_specialty(raw, current_specialty="ent", relevance_threshold=75)
+    out = _extract(raw, current_specialty="ent", relevance_threshold=75)
     # Non-string optional fields fall back to "" rather than raising.
     assert out is not None
     assert out.reason_code == "" and out.display_message == ""
+
+
+# ---------------------------------------------------------------------------
+# Minimum prior exchange — "do not redirect before enough input"
+# ---------------------------------------------------------------------------
+
+def test_redirect_on_the_opening_message_is_rejected():
+    """total_messages=0 — the patient's very first message. Even an
+    otherwise-valid, high-confidence suggestion must not fire yet: there has
+    been no prior exchange to judge "wrong specialty" from."""
+    out = _extract_suggested_specialty(
+        _analysis(), current_specialty="ent", relevance_threshold=75, total_messages=0,
+    )
+    assert out is None
+
+
+def test_redirect_with_one_prior_message_is_still_rejected():
+    """total_messages=1 means only the current turn's own message has been
+    counted so far (no full prior exchange) — still too early."""
+    out = _extract_suggested_specialty(
+        _analysis(), current_specialty="ent", relevance_threshold=75, total_messages=1,
+    )
+    assert out is None
+
+
+def test_redirect_after_one_full_prior_exchange_is_accepted():
+    """total_messages=2 (one prior user + one prior assistant message) is
+    the minimum — exactly SUGGESTED_SPECIALTY_MIN_TOTAL_MESSAGES."""
+    out = _extract_suggested_specialty(
+        _analysis(), current_specialty="ent", relevance_threshold=75,
+        total_messages=SUGGESTED_SPECIALTY_MIN_TOTAL_MESSAGES,
+    )
+    assert out is not None
+
+
+def test_minimum_total_messages_defaults_to_the_module_constant():
+    """Callers that omit total_messages entirely (an old call site, or a
+    bug) must fail CLOSED (no redirect) rather than open."""
+    out = _extract_suggested_specialty(_analysis(), current_specialty="ent", relevance_threshold=75)
+    assert out is None
 
 
 # ---------------------------------------------------------------------------

@@ -33,6 +33,7 @@ import pytest
 
 from app.services.orchestration.pipeline import (
     SUGGESTED_SPECIALTY_MIN_CONFIDENCE,
+    SUGGESTED_SPECIALTY_MIN_TOTAL_MESSAGES,
     AsyncOrchestrator,
     _canned_message,
     _extract_suggested_specialty,
@@ -257,7 +258,10 @@ def test_contradictory_claim_is_rejected_high_own_relevance_but_suggests_anyway(
 
 def test_legitimate_low_relevance_suggestion_is_accepted():
     analysis = {"intent": "symptom_query", "ent_relevance": 20, "suggested_specialty": _suggestion()}
-    out = _extract_suggested_specialty(analysis, current_specialty="ent", relevance_threshold=75)
+    out = _extract_suggested_specialty(
+        analysis, current_specialty="ent", relevance_threshold=75,
+        total_messages=SUGGESTED_SPECIALTY_MIN_TOTAL_MESSAGES,
+    )
     assert out is not None
     assert out.slug == "dermatology"
 

@@ -304,7 +304,8 @@ def test_prose_substantive_uses_response_format(query_type: str):
     out = layer_formatting_constraints(query_type=query_type)
     assert "RESPONSE FORMAT" in out
     assert "substantive clinical" in out.lower()
-    assert "flowing natural prose" in out.lower()
+    assert "scannable" in out.lower()
+    assert "bullet" in out.lower()
     # Must NOT be the short brush-off branch.
     assert "1–2 sentences" not in out
 
