@@ -23,6 +23,13 @@ dist/
 .eggs/
 
 # --------------------------------------------------------------------------
+# Ad-hoc archives — snapshots/backups of a tracked directory (e.g. a zipped
+# copy of a package) tend to drift out of sync with the real source and
+# should never be committed alongside it.
+# --------------------------------------------------------------------------
+*.zip
+
+# --------------------------------------------------------------------------
 # Tool caches
 # --------------------------------------------------------------------------
 .pytest_cache/
@@ -86,6 +93,12 @@ documents/
 .claude/
 *.swp
 *.swo
+
+# --------------------------------------------------------------------------
+# OS junk
+# --------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
 
 # --------------------------------------------------------------------------
 # Frontend / static assets (this repo ships an API-only service — any HTML,

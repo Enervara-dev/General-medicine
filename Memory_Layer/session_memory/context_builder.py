@@ -44,7 +44,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from .models import Message, Role, StructuredState
+from .models import Message, StructuredState
 from .retriever import WorkingMemory
 
 # ---------------------------------------------------------------------------

@@ -29,9 +29,9 @@ Public API:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from .models import Message, Role, SessionMemory, StructuredState
+from .models import Message, SessionMemory, StructuredState
 
 # ---------------------------------------------------------------------------
 # Configuration defaults

@@ -8,7 +8,6 @@ from chunking.chunkers.sub_chunker import SubChunker
 from chunking.storage.versioned_storage import VersionedStorage
 from chunking.schemas.models import DocumentMetadata
 import logging
-import os
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 

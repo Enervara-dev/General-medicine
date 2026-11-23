@@ -10,7 +10,6 @@ would cause the same "Event loop is closed" failure the main pipeline hit.
 from __future__ import annotations
 
 import asyncio
-import os
 from pathlib import Path
 
 import pytest

@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from memory.cache.redis_cache import RedisStateCache
-from memory.models.clinical_fact import ClinicalFact, FactStatus, FactType
+from memory.models.clinical_fact import ClinicalFact, FactStatus
 from memory.models.episodic_memory import EpisodicMemory
 from memory.models.patient_state import PatientState
 from memory.models.retrieval_log import RetrievalLog

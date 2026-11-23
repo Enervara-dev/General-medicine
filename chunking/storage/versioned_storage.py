@@ -3,7 +3,6 @@ import logging
 from pathlib import Path
 from typing import List
 from chunking.schemas.models import MicroChunk
-from chunking.config.settings import settings
 
 logger = logging.getLogger(__name__)
 

@@ -11,7 +11,6 @@ from __future__ import annotations
 import pytest
 
 from episodic.schemas.contradiction import ContradictionSeverity
-from episodic.schemas.episode import EpisodeCategory
 from episodic.schemas.retrieval import RetrievalRequest
 
 

@@ -18,7 +18,6 @@ import asyncio
 import json
 import logging
 import sys
-from typing import Any
 
 # Windows console default codepage (cp1252) can't render the box-drawing
 # characters this script uses. Force stdout/stderr to UTF-8 so the report

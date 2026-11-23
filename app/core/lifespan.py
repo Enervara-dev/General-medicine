@@ -1,9 +1,6 @@
 """
 FastAPI lifespan — startup builds the AppContainer (orchestrator + all clients),
 shutdown closes the long-lived connections (Redis, Neo4j).
-
-Phase 1: lifespan is a minimal placeholder that only sets up logging.
-Phase 2 fills in container construction.
 """
 
 from __future__ import annotations

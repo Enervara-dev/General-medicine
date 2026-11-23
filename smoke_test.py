@@ -30,7 +30,7 @@ from graphrag.domain.messages import (
     out_of_scope_blocks,
     refusal_blocks,
 )
-from graphrag.schemas.blocks import AnswerResponse, Block, BlockAdapter
+from graphrag.schemas.blocks import AnswerResponse
 from graphrag.validators.answer_validator import (
     aiter_blocks,
     block_to_line,

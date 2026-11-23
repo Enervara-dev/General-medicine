@@ -8,7 +8,6 @@ from graphrag.processors.entity_processor import EntityProcessor
 from graphrag.llm.gemini_llm import GeminiLLM
 from graphrag.memory import SessionMemoryAdapter
 from graphrag.query_understanding import (
-    QueryType,
     RoutingMode,
     decide_routing,
     get_config,

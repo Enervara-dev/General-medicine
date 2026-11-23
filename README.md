@@ -180,21 +180,21 @@ RAG/
 ├── scripts/                              # Ingestion + maintenance entry points
 │   ├── chunker.py, clean_chunks.py
 │   ├── ingest_pinecone.py, ingest_neo4j.py
-│   ├── progress.py, check_api.py
+│   ├── progress.py, check_api.py, keytester.py
+│   └── stress_test/                      # Excel-driven batch runner (manual, not pytest)
 │
 ├── memory/                               # Postgres/pgvector longitudinal layer (built but unwired)
 ├── documents/                            # Source PDFs
 ├── data/                                 # Final processed chunks per category
 │
 ├── main.py                               # legacy interactive CLI (sync, kept for local debugging)
-├── Dockerfile                            # multi-stage build for Render
-├── render.yaml                           # Render Blueprint
+├── Dockerfile                            # multi-stage build; consumed by both deploy paths below
+├── render.yaml                           # Render Blueprint (see note below — CI currently deploys to AWS ECS instead)
 ├── pyproject.toml                        # dependencies + optional extras (api, memory, test, dev)
 ├── .env.example                          # template
 └── tests/
     ├── unit/                             # routing + analyzer unit tests
-    ├── integration/                      # episodic integration + FastAPI integration tests
-    └── StressTest/                       # Excel-driven batch runner
+    └── integration/                      # episodic integration + FastAPI integration tests
 ```
 
 ---
@@ -526,6 +526,12 @@ When routing flips to `MEMORY_FIRST`, the pipeline overrides these to `top_k=2`,
 
 ## Deployment (Docker + Render)
 
+> **Note — two deploy paths exist in this repo and they currently diverge.** `render.yaml` below
+> describes a Render Blueprint, but `.github/workflows/deploy.yml` builds the same `Dockerfile` and
+> deploys it to an AWS ECS cluster (`ap-south-1`) on every push to `main`. Confirm with the team
+> which one is the live, authoritative deployment before relying on either description — this
+> section documents the Render path as originally written; see the ECS workflow for the other.
+
 ### Dockerfile
 
 The multi-stage `Dockerfile` builds the wheel + installs the `api` extra in a builder stage, then copies site-packages into a slim runtime stage. The runtime drops to a non-root user (`enervera`, uid 10001) and runs:
@@ -624,9 +630,13 @@ The FastAPI integration suite (`tests/integration/test_api_chat.py`) covers:
 
 ### Stress test (Excel-driven batch runner)
 
+This is a manual script, not an automated pytest test — run it by hand when you want to
+batch-evaluate answer quality. It now lives under `scripts/` (moved out of `tests/` so
+pytest never attempts to collect it).
+
 ```powershell
-python tests/StressTest/run_stress_test.py `
-    --excel "tests/StressTest/RAG STRESS TEST 2.xlsx" `
+python scripts/stress_test/run_stress_test.py `
+    --excel "scripts/stress_test/RAG STRESS TEST 2.xlsx" `
     --delay 2
 ```
 

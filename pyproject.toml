@@ -116,4 +116,4 @@ python_version = "3.10"
 ignore_missing_imports = true
 check_untyped_defs = true
 warn_unused_ignores = true
-exclude = ["chunking/output", "logs", "data", "tests/StressTest"]
+exclude = ["chunking/output", "logs", "data", "scripts/stress_test"]

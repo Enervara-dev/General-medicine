@@ -33,7 +33,6 @@ from app.services.orchestration.prompt_layers import (
     layer_session_state_instructions,
     layer_tool_instructions,
 )
-from graphrag.schemas.blocks import BLOCK_TYPES
 
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,6 @@ SigV4 over VPC Lattice — see test_pms_sigv4.py.
 from types import SimpleNamespace
 
 import httpx
-import pytest
 
 from app.identity import IdentityContext
 from app.schemas.chat import ChatRequest, IdentityEnvelope

@@ -1,6 +1,5 @@
 from typing import List, Optional, Literal, Dict, Any
-from pydantic import BaseModel, Field, field_validator, model_validator
-import datetime
+from pydantic import BaseModel, Field, model_validator
 
 class DocumentMetadata(BaseModel):
     doc_id: str

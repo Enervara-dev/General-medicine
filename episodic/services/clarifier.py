@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
 
 from graphrag.llm.gemini_client import generate_text_async
 

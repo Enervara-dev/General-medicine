@@ -45,7 +45,6 @@ Retry extraction and correct the JSON to pass strict validation rules above.
                 
         # If it reaches here, it failed entirely.
         # Ensure logs/failed_blocks exists and log it
-        import os
         from pathlib import Path
         failed_dir = Path("logs/failed_blocks")
         failed_dir.mkdir(parents=True, exist_ok=True)

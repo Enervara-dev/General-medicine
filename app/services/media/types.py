@@ -13,7 +13,7 @@ metadata-only by construction (see objective 5: never store raw image bytes).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 
 from pydantic import BaseModel, Field

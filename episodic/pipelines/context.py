@@ -9,7 +9,6 @@ is ready to drop into the answer LLM's context.
 from __future__ import annotations
 
 import logging
-from typing import Any
 
 from episodic.schemas.retrieval import (
     CompressedEpisode,

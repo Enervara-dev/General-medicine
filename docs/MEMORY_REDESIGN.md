@@ -533,7 +533,7 @@ A safe four-phase migration that keeps the system serving traffic the whole time
 
 1. Behind a feature flag `LONGITUDINAL_MEMORY_ENABLED`, swap `SessionMemoryAdapter` for `LongitudinalMemoryAdapter` in `GraphRAGPipeline.__init__`.
 2. Enable for a small percentage of sessions first. Verify retrieval log shows reasonable fact selection.
-3. Compare answer quality side-by-side using `tests/StressTest/run_stress_test.py`.
+3. Compare answer quality side-by-side using `scripts/stress_test/run_stress_test.py`.
 4. Ramp to 100%.
 
 ### Phase E — Decommission Redis as source of truth

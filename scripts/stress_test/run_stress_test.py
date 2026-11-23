@@ -7,7 +7,7 @@ and writes the model answer into a new column "model_answer" in the
 same workbook.
 
 Usage (from the project root):
-    python tests/StressTest/run_stress_test.py
+    python scripts/stress_test/run_stress_test.py
 
 Optional flags:
     --excel   Path to the Excel file  (default: auto-detected)
@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 
 # Make sure the project root is on sys.path so 'graphrag' is importable
-PROJECT_ROOT = Path(__file__).resolve().parents[2]   # tests/StressTest/../../
+PROJECT_ROOT = Path(__file__).resolve().parents[2]   # scripts/stress_test/../../
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
