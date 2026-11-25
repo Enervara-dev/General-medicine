@@ -27,9 +27,17 @@ EXPECTED_DIMENSIONS = {
     "communication_quality",
 }
 
+EXPECTED_SCENARIO_TYPES = {
+    "routine",
+    "emergency",
+    "ambiguous",
+    "historical_or_resolved",
+}
+
 REQUIRED_CASE_FIELDS = {
     "case_id",
     "specialty",
+    "scenario_type",
     "user_query",
     "conversation_context",
     "expected_intent",
@@ -72,10 +80,18 @@ def test_benchmark_cases_have_unique_ids_and_required_fields(benchmark):
 
     for case in cases:
         assert REQUIRED_CASE_FIELDS.issubset(case.keys())
+        assert case["case_id"].strip()
         assert case["specialty"] in EXPECTED_SPECIALTIES
+        assert case["scenario_type"] in EXPECTED_SCENARIO_TYPES
         assert isinstance(case["user_query"], str)
+        assert case["user_query"].strip()
         assert isinstance(case["conversation_context"], list)
+        assert isinstance(case["required_response_properties"], list)
+        assert isinstance(case["forbidden_response_properties"], list)
+        assert isinstance(case["critical_failure_conditions"], list)
         assert case["review_status"] in {"pending", "approved", "rejected"}
+        assert isinstance(case["reviewer_notes"], str)
+        assert case["reviewer_notes"].strip()
 
 
 def test_pending_cases_do_not_claim_clinical_approval(benchmark):
