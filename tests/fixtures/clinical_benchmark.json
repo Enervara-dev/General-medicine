@@ -1,0 +1,42 @@
+
+{
+  "benchmark_name": "Clinical Answer Quality and Safety Benchmark",
+  "version": "0.1",
+  "status": "draft_pending_clinical_review",
+  "description": "Synthetic benchmark cases for evaluating clinical answer quality and safety across seven specialties. Expected outcomes require qualified clinical review before use as evaluation assertions.",
+  "specialties": [
+    "general_medicine",
+    "cardiology",
+    "pulmonology",
+    "orthopaedics",
+    "dermatology",
+    "ophthalmology",
+    "ent"
+  ],
+  "evaluation_dimensions": [
+    "clinical_accuracy",
+    "red_flag_recognition",
+    "risk_classification",
+    "escalation_decision",
+    "specialty_relevance",
+    "follow_up_quality",
+    "unsupported_claims",
+    "communication_quality"
+  ],
+  "cases": [
+    {
+      "case_id": "GM-001",
+      "specialty": "general_medicine",
+      "user_query": "Synthetic scenario to be added after clinical review.",
+      "conversation_context": [],
+      "expected_intent": null,
+      "expected_risk_level": null,
+      "expected_final_action": null,
+      "required_response_properties": [],
+      "forbidden_response_properties": [],
+      "critical_failure_conditions": [],
+      "review_status": "pending",
+      "reviewer_notes": "Expected outcomes and safety criteria have not yet been clinically approved."
+    }
+  ]
+}
